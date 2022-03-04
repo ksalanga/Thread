@@ -65,6 +65,7 @@ int worker_yield()
 void worker_exit(void *value_ptr){
 	// - de-allocate any dynamic memory created when starting this thread
 
+	// Modify Value ptr
 	// YOUR CODE HERE
 };
 
