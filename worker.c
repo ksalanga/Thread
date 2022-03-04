@@ -59,8 +59,6 @@ int worker_yield()
 	swapcontext(&sched_ctx, currTCB->t_ctxt);
 
 	return 0;
-
-	return 0;
 };
 
 /* terminate a thread */
