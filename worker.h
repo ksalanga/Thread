@@ -54,7 +54,7 @@ typedef struct TCB
 /* mutex struct definition */
 typedef struct worker_mutex_t
 {
-	int locked;
+	enum lock_status locked;
 } worker_mutex_t;
 
 /* define your data structures here: */
