@@ -30,6 +30,12 @@ enum status
 	BLOCKED
 };
 
+enum lock_status
+{
+	LOCKED,
+	UNLOCKED
+};
+
 typedef struct TCB
 {
 	// thread Id
