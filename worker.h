@@ -18,9 +18,17 @@
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <signal.h>
 #include <ucontext.h>
 
 typedef uint worker_t;
+
+enum status
+{
+	READY,
+	RUNNING,
+	BLOCKED
+};
 
 typedef struct TCB
 {
@@ -28,13 +36,10 @@ typedef struct TCB
 	worker_t id;
 
 	// thread status
-	// 0: Ready
-	// 1: Running
-	// 2: Blocked
-	int status;
+	enum status status;
 
 	// thread context
-	ucontext_t t_ctxt;
+	ucontext_t *t_ctxt;
 
 	// thread priority for MLFQ
 	int priority;

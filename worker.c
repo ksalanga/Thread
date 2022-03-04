@@ -5,8 +5,10 @@
 // iLab Server:
 
 #include "worker.h"
-// INITAILIZE ALL YOUR VARIABLES HERE
-// YOUR CODE HERE
+
+#define STACK_SIZE SIGSTKSZ
+struct TCB *currTCB;
+ucontext_t sched_ctx;
 
 /* create a new thread */
 int worker_create(worker_t *thread, pthread_attr_t *attr,
@@ -19,7 +21,27 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 	// after everything is set, push this thread into run queue and
 	// - make it ready for the execution.
 
-	// YOUR CODE HERE
+	struct TCB *tcb = (struct TCB *)malloc(sizeof(struct TCB));
+	tcb->id = 0;
+	tcb->status = READY;
+	tcb->priority = 0;
+	tcb->t_ctxt = (struct ucontext_t *)malloc(sizeof(struct ucontext_t));
+
+	void *stack = malloc(STACK_SIZE);
+
+	if (stack == NULL)
+	{
+		perror("Failed to allocate stack");
+		exit(1);
+	}
+
+	/* Setup context that we are going to use */
+	tcb->t_ctxt->uc_link = NULL;
+	tcb->t_ctxt->uc_stack.ss_sp = stack;
+	tcb->t_ctxt->uc_stack.ss_size = STACK_SIZE;
+	tcb->t_ctxt->uc_stack.ss_flags = 0;
+
+	// add to queue still has to be done
 
 	return 0;
 };
@@ -32,7 +54,11 @@ int worker_yield()
 	// - save context of this thread to its thread control block
 	// - switch from thread context to scheduler context
 
-	// YOUR CODE HERE
+	currTCB->status = 0;
+	// free past thread context?
+	swapcontext(&sched_ctx, currTCB->t_ctxt);
+
+	return 0;
 
 	return 0;
 };
