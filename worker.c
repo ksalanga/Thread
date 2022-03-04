@@ -54,7 +54,7 @@ int worker_yield()
 	// - save context of this thread to its thread control block
 	// - switch from thread context to scheduler context
 
-	currTCB->status = 0;
+	currTCB->status = READY;
 	// free past thread context?
 	swapcontext(&sched_ctx, currTCB->t_ctxt);
 
@@ -86,7 +86,9 @@ int worker_mutex_init(worker_mutex_t *mutex,
 {
 	//- initialize data structures for this mutex
 
-	// YOUR CODE HERE
+	mutex = (worker_mutex_t*)(malloc(sizeof(struct worker_mutex_t)));
+	mutex->lock = UNLOCKED;
+
 	return 0;
 };
 
@@ -99,7 +101,14 @@ int worker_mutex_lock(worker_mutex_t *mutex)
 	// - if acquiring mutex fails, push current thread into block list and
 	// context switch to the scheduler thread
 
-	// YOUR CODE HERE
+	
+	if(mutex->lock == UNLOCKED){
+		mutex->lock = LOCKED;
+		currTCB->status = RUNNING; //either running or ready
+	}else if(mutex->lock == LOCKED){
+		currTCB->status = BLOCKED;
+	}
+
 	return 0;
 };
 
@@ -110,7 +119,10 @@ int worker_mutex_unlock(worker_mutex_t *mutex)
 	// - put threads in block list to run queue
 	// so that they could compete for mutex later.
 
-	// YOUR CODE HERE
+	if(mutex->lock == LOCKED){
+		mutex->lock = UNLOCKED;
+	}
+
 	return 0;
 };
 
@@ -118,7 +130,7 @@ int worker_mutex_unlock(worker_mutex_t *mutex)
 int worker_mutex_destroy(worker_mutex_t *mutex)
 {
 	// - de-allocate dynamic memory created in worker_mutex_init
-
+	free(mutex);
 	return 0;
 };
 
