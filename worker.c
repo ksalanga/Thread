@@ -8,7 +8,8 @@
 
 #define STACK_SIZE SIGSTKSZ
 struct TCB *currTCB;
-ucontext_t sched_ctx;
+ucontext_t *sched_ctx;
+struct Queue *runqueue;
 
 /* create a new thread */
 int worker_create(worker_t *thread, pthread_attr_t *attr,
@@ -20,6 +21,18 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 	// - allocate space of stack for this thread to run
 	// after everything is set, push this thread into run queue and
 	// - make it ready for the execution.
+
+	if (sched_ctx == NULL)
+	{
+		sched_ctx = (struct ucontext_t *)malloc(sizeof(struct ucontext_t));
+		void *sched_ctx_stack = malloc(STACK_SIZE);
+		sched_ctx->uc_link = NULL;
+		sched_ctx->uc_stack.ss_sp = sched_ctx_stack;
+		sched_ctx->uc_stack.ss_size = STACK_SIZE;
+		sched_ctx->uc_stack.ss_flags = 0;
+		makecontext(sched_ctx, schedule, 0);
+		runqueue = createQueue(100);
+	}
 
 	struct TCB *tcb = (struct TCB *)malloc(sizeof(struct TCB));
 	tcb->id = 0;
@@ -41,7 +54,12 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 	tcb->t_ctxt->uc_stack.ss_size = STACK_SIZE;
 	tcb->t_ctxt->uc_stack.ss_flags = 0;
 
-	// add to queue still has to be done
+	// TODO
+	// if RR put into runqueue, if MLFQ, put into top priority queue
+	enqueue(runqueue, tcb);
+
+	// setting context would reset the timer
+	setcontext(sched_ctx);
 
 	return 0;
 };
@@ -56,16 +74,22 @@ int worker_yield()
 
 	currTCB->status = READY;
 	// free past thread context?
-	swapcontext(&sched_ctx, currTCB->t_ctxt);
+	swapcontext(currTCB->t_ctxt, sched_ctx);
 
 	return 0;
 };
 
 /* terminate a thread */
-void worker_exit(void *value_ptr){
+void worker_exit(void *value_ptr)
+{
 	// - de-allocate any dynamic memory created when starting this thread
-
 	// Modify Value ptr
+
+	free(currTCB->t_ctxt->uc_stack.ss_sp);
+	free(currTCB->t_ctxt);
+	free(currTCB);
+
+	currTCB = NULL;
 	// YOUR CODE HERE
 };
 
@@ -86,7 +110,7 @@ int worker_mutex_init(worker_mutex_t *mutex,
 {
 	//- initialize data structures for this mutex
 
-	mutex = (worker_mutex_t*)(malloc(sizeof(struct worker_mutex_t)));
+	mutex = (worker_mutex_t *)(malloc(sizeof(struct worker_mutex_t)));
 	mutex->lock = UNLOCKED;
 
 	return 0;
@@ -101,11 +125,13 @@ int worker_mutex_lock(worker_mutex_t *mutex)
 	// - if acquiring mutex fails, push current thread into block list and
 	// context switch to the scheduler thread
 
-	
-	if(mutex->lock == UNLOCKED){
+	if (mutex->lock == UNLOCKED)
+	{
 		mutex->lock = LOCKED;
-		currTCB->status = RUNNING; //either running or ready
-	}else if(mutex->lock == LOCKED){
+		currTCB->status = RUNNING; // either running or ready
+	}
+	else if (mutex->lock == LOCKED)
+	{
 		currTCB->status = BLOCKED;
 	}
 
@@ -119,7 +145,8 @@ int worker_mutex_unlock(worker_mutex_t *mutex)
 	// - put threads in block list to run queue
 	// so that they could compete for mutex later.
 
-	if(mutex->lock == LOCKED){
+	if (mutex->lock == LOCKED)
+	{
 		mutex->lock = UNLOCKED;
 	}
 
