@@ -91,8 +91,10 @@ void worker_exit(void *value_ptr)
 
 	currTCB = NULL;
 
-	// TODO:
-	// Do not put back into queue, effectively removing the thread
+	// Because currTCB is null, when we go back to the runqueue,
+	// the running thread that called worker exit has already been dequequed,
+	// just check in the scheduler if currTCB is NULL, enqueue next thread.
+	// effectively removing the thread
 };
 
 /* Wait for thread termination */
