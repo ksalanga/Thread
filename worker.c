@@ -90,7 +90,9 @@ void worker_exit(void *value_ptr)
 	free(currTCB);
 
 	currTCB = NULL;
-	// YOUR CODE HERE
+
+	// TODO:
+	// Do not put back into queue, effectively removing the thread
 };
 
 /* Wait for thread termination */
@@ -100,7 +102,9 @@ int worker_join(worker_t thread, void **value_ptr)
 	// - wait for a specific thread to terminate
 	// - de-allocate any dynamic memory created by the joining thread
 
-	// YOUR CODE HERE
+	// TODO:
+	// If thread is not in queue, resume
+	// else, swapcontext to sched
 	return 0;
 };
 
