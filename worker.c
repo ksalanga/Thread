@@ -61,8 +61,7 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 	// if RR put into runqueue, if MLFQ, put into top priority queue
 	// Make context for both the calling thread and worker thread
 
-	// Figure out how to pass in multiple args
-	makecontext(tcb->t_ctxt, (void *)&function, 0);
+	makecontext(tcb->t_ctxt, (void *)&function, 1, arg);
 	enqueue(runqueue, tcb);
 
 	// Save context for the calling thread?
