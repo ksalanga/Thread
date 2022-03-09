@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <ucontext.h>
+#include <sys/time.h>
 
 typedef uint worker_t;
 

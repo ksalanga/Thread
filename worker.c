@@ -11,6 +11,9 @@ struct TCB *currTCB;
 ucontext_t *sched_ctx;
 struct Queue *runqueue;
 
+#define INTERVAL 1000 /* milliseconds */
+#define STACK_SIZE SIGSTKSZ
+
 /* create a new thread */
 int worker_create(worker_t *thread, pthread_attr_t *attr,
 				  void *(*function)(void *), void *arg)
@@ -184,6 +187,38 @@ static void schedule()
 	// YOUR CODE HERE
 
 // - schedule policy
+
+	struct sigaction sa;
+	sa.sa_handler = schedule;
+	sa.sa_flags = 0;
+    sigfillset(&sa.sa_mask);
+    sigdelset(&sa.sa_mask, SIGPROF);
+
+	struct itimerval it_val; /* for setting itimer */
+	struct itimerval temp; //for resetting timer
+
+    /* Upon SIGALRM, call DoStuff().
+     * Set interval timer.  We want frequency in ms,
+     * but the setitimer call needs seconds and useconds. */
+    if (sigaction(SIGPROF, &sa, NULL) == -1)
+    {
+        printf("Unable to catch SIGALRM");
+        exit(1);
+    }
+
+    it_val.it_value.tv_sec = INTERVAL / 1000;
+    it_val.it_value.tv_usec = (INTERVAL * 1000) % 1000000;
+    it_val.it_interval = it_val.it_value;
+
+	temp.it_value.tv_sec = INTERVAL / 1000;
+    temp.it_value.tv_usec = (INTERVAL * 1000) % 1000000;
+    temp.it_interval = temp.it_value;
+    if (setitimer(ITIMER_PROF, &temp, &it_val) == -1)
+    {
+        printf("error calling setitimer()");
+        exit(1);
+    }
+
 #ifndef MLFQ
 	// Choose RR
 #else
