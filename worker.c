@@ -27,6 +27,21 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 
 	if (sched_ctx == NULL)
 	{
+		// Create Signal for Timer
+		struct sigaction sa;
+
+		sa.sa_handler = schedule;
+		sa.sa_flags = 0;
+		sigfillset(&sa.sa_mask);
+		sigdelset(&sa.sa_mask, SIGPROF);
+
+		if (sigaction(SIGPROF, &sa, NULL) == -1)
+		{
+			printf("Unable to catch SIGALRM");
+			exit(1);
+		}
+
+		// Initialize scheduler context
 		sched_ctx = (struct ucontext_t *)malloc(sizeof(struct ucontext_t));
 		void *sched_ctx_stack = malloc(STACK_SIZE);
 		sched_ctx->uc_link = NULL;
@@ -35,7 +50,8 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 		sched_ctx->uc_stack.ss_flags = 0;
 		getcontext(sched_ctx);
 		makecontext(sched_ctx, schedule, 0);
-		runqueue = createQueue(100);
+
+		runqueue = createQueue();
 	}
 
 	// Create Main/Caller Thread Context
@@ -96,6 +112,7 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 	makecontext(worker_tcb->t_ctxt, (void *)&function, 1, arg);
 	enqueue(runqueue, worker_tcb);
 
+	// Temporarily Yield to the Scheduler Ctxt
 	currTCB->yield = 1;
 
 	swapcontext(currTCB->t_ctxt, sched_ctx);
@@ -226,24 +243,6 @@ static void schedule()
 
 	// TODO: ignore timer for now.
 
-	// struct sigaction sa;
-	// sa.sa_handler = schedule;
-	// sa.sa_flags = 0;
-	// sigfillset(&sa.sa_mask);
-	// sigdelset(&sa.sa_mask, SIGPROF);
-
-	// struct itimerval it_val; /* for setting itimer */
-	// struct itimerval temp;	 // for resetting timer
-
-	// /* Upon SIGALRM, call DoStuff().
-	//  * Set interval timer.  We want frequency in ms,
-	//  * but the setitimer call needs seconds and useconds. */
-	// if (sigaction(SIGPROF, &sa, NULL) == -1)
-	// {
-	// 	printf("Unable to catch SIGALRM");
-	// 	exit(1);
-	// }
-
 	// it_val.it_value.tv_sec = INTERVAL / 1000;
 	// it_val.it_value.tv_usec = (INTERVAL * 1000) % 1000000;
 	// it_val.it_interval = it_val.it_value;
@@ -292,7 +291,7 @@ struct QNode *newNode(tcb *tcb)
 	return temp;
 }
 
-struct Queue *createQueue(unsigned capacity)
+struct Queue *createQueue()
 {
 	struct Queue *q = (struct Queue *)malloc(sizeof(struct Queue));
 	q->front = q->rear = NULL;
