@@ -275,68 +275,49 @@ static void sched_mlfq()
 
 // Feel free to add any other functions you need
 
+struct QNode *newNode(tcb *tcb)
+{
+	struct QNode *temp = (struct QNode *)malloc(sizeof(struct QNode));
+	temp->tcb = tcb;
+	temp->next = NULL;
+	return temp;
+}
+
 struct Queue *createQueue(unsigned capacity)
 {
-	struct Queue *queue = (struct Queue *)malloc(
-		sizeof(struct Queue));
-	queue->capacity = capacity;
-	queue->front = queue->size = 0;
-
-	// This is important, see the enqueue
-	queue->rear = capacity - 1;
-	queue->array = (tcb **)malloc(
-		queue->capacity * sizeof(tcb *));
-	return queue;
+	struct Queue *q = (struct Queue *)malloc(sizeof(struct Queue));
+	q->front = q->rear = NULL;
+	return q;
 }
 
-void resizeQueue(struct Queue *queue)
+void enqueue(struct Queue *q, tcb *tcb)
 {
-	queue->capacity += 100;
-	queue->array = (tcb **)realloc(&queue->array, queue->capacity * sizeof(tcb *));
-}
+	struct QNode *temp = newNode(tcb);
 
-int isFull(struct Queue *queue)
-{
-	return (queue->size == queue->capacity);
-}
-
-int isEmpty(struct Queue *queue)
-{
-	return queue->size == 0;
-}
-
-void enqueue(struct Queue *queue, tcb *item)
-{
-	if (isFull(queue))
+	if (q->rear == NULL)
 	{
-		resizeQueue(queue);
+		q->front = q->rear = temp;
 		return;
 	}
-	queue->rear = (queue->rear + 1) % queue->capacity;
-	queue->array[queue->rear] = item;
-	queue->size = queue->size + 1;
+
+	// Add the new node at the end of queue and change rear
+	q->rear->next = temp;
+	q->rear = temp;
 }
 
-tcb *dequeue(struct Queue *queue)
+tcb *dequeue(struct Queue *q)
 {
-	if (isEmpty(queue))
+	if (q->front == NULL)
 		return NULL;
-	tcb *item = queue->array[queue->front];
-	queue->front = (queue->front + 1) % queue->capacity;
-	queue->size = queue->size - 1;
-	return item;
-}
 
-tcb *front(struct Queue *queue)
-{
-	if (isEmpty(queue))
-		return NULL;
-	return queue->array[queue->front];
-}
+	struct QNode *node = q->front;
+	tcb *tcb = node->tcb;
 
-tcb *rear(struct Queue *queue)
-{
-	if (isEmpty(queue))
-		return NULL;
-	return queue->array[queue->rear];
+	q->front = q->front->next;
+
+	if (q->front == NULL)
+		q->rear = NULL;
+
+	free(node);
+	return tcb;
 }

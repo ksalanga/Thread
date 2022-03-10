@@ -20,8 +20,8 @@ int main(int argc, char **argv)
 	struct Queue *q = setupQueue();
 	struct Queue *q2 = setupQueue();
 
-	checkCtxt(q2);
 	checkCtxt(q);
+	checkCtxt(q2);
 	return 0;
 }
 
@@ -42,7 +42,7 @@ struct Queue *setupQueue()
 	cctx.uc_stack.ss_size = i;
 	cctx.uc_stack.ss_flags = 0;
 
-	tcb1->t_ctxt = cctx;
+	tcb1->t_ctxt = &cctx;
 	printf("Setup context: %x\n", cctx);
 	printf("TCB context: %x\n", tcb1->t_ctxt);
 	enqueue(q, tcb1);

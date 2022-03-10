@@ -61,29 +61,27 @@ typedef struct worker_mutex_t
 /* define your data structures here: */
 // Feel free to add your own auxiliary data structures (linked list or queue etc...)
 
+typedef struct QNode
+{
+	tcb *tcb;
+	struct QNode *next;
+} qnode;
+
 // Queue of TCBs
 typedef struct Queue
 {
-	int front, rear, size;
-	unsigned capacity;
-	tcb **array;
+	struct QNode *front, *rear;
 } queue;
 
-struct Queue *createQueue(unsigned capacity);
+struct QNode *newNode(tcb *item);
 
-void resizeQueue(struct Queue *queue);
+struct Queue *createQueue();
 
-int isFull(struct Queue *queue);
+void enqueue(struct Queue *q, tcb *item);
 
-int isEmpty(struct Queue *queue);
+tcb *dequeue(struct Queue *q);
 
-void enqueue(struct Queue *queue, tcb *item);
-
-tcb *dequeue(struct Queue *queue);
-
-tcb *front(struct Queue *queue);
-
-tcb *rear(struct Queue *queue);
+static void schedule();
 
 // MLFQ
 queue PriorityArray[4];
