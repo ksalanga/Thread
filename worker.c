@@ -33,44 +33,65 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 		sched_ctx->uc_stack.ss_sp = sched_ctx_stack;
 		sched_ctx->uc_stack.ss_size = STACK_SIZE;
 		sched_ctx->uc_stack.ss_flags = 0;
+		getcontext(sched_ctx);
 		makecontext(sched_ctx, schedule, 0);
 		runqueue = createQueue(100);
 	}
 
-	struct TCB *tcb = (struct TCB *)malloc(sizeof(struct TCB));
-	tcb->id = 0;
-	tcb->status = READY;
-	tcb->priority = 0;
-	tcb->t_ctxt = (struct ucontext_t *)malloc(sizeof(struct ucontext_t));
+	struct TCB *worker_tcb = (struct TCB *)malloc(sizeof(struct TCB));
+	worker_tcb->id = 0;
+	worker_tcb->status = READY;
+	worker_tcb->priority = 0;
+	worker_tcb->t_ctxt = (struct ucontext_t *)malloc(sizeof(struct ucontext_t));
 
-	void *stack = malloc(STACK_SIZE);
+	void *worker_stack = malloc(STACK_SIZE);
 
-	if (stack == NULL)
+	if (worker_stack == NULL)
 	{
-		perror("Failed to allocate stack");
+		perror("Failed to allocate worker_stack");
 		exit(1);
 	}
 
 	/* Setup context that we are going to use */
-	tcb->t_ctxt->uc_link = NULL;
-	tcb->t_ctxt->uc_stack.ss_sp = stack;
-	tcb->t_ctxt->uc_stack.ss_size = STACK_SIZE;
-	tcb->t_ctxt->uc_stack.ss_flags = 0;
+	worker_tcb->t_ctxt->uc_link = sched_ctx;
+	worker_tcb->t_ctxt->uc_stack.ss_sp = worker_stack;
+	worker_tcb->t_ctxt->uc_stack.ss_size = STACK_SIZE;
+	worker_tcb->t_ctxt->uc_stack.ss_flags = 0;
 
 	// TODO
 	// if RR put into runqueue, if MLFQ, put into top priority queue
-	// Make context for both the calling thread and worker thread
 
 	// Create Worker Thread Context
-	makecontext(tcb->t_ctxt, (void *)&function, 1, arg);
-	enqueue(runqueue, tcb);
+	getcontext(worker_tcb->t_ctxt);
+	makecontext(worker_tcb->t_ctxt, (void *)&function, 1, arg);
+	enqueue(runqueue, worker_tcb);
 
-	// Create Caller Thread Context and Make that TCB's caller field = true (1)
-	// Save context for the calling thread?
-	// Swap Context from here to scheduler
-	// But creating context for calling thread each time will put multiple of it in the queue...
-	// is this what we want?
-	setcontext(sched_ctx);
+	// Create Main/Caller Thread Context
+	if (currTCB == NULL)
+	{
+		struct TCB *main_tcb = (struct TCB *)malloc(sizeof(struct TCB));
+		main_tcb->id = 0;
+		main_tcb->status = READY;
+		main_tcb->priority = 0;
+		main_tcb->t_ctxt = (struct ucontext_t *)malloc(sizeof(struct ucontext_t));
+
+		void *main_stack = malloc(STACK_SIZE);
+
+		if (main_stack == NULL)
+		{
+			perror("Failed to allocate main_stack");
+			exit(1);
+		}
+
+		main_tcb->t_ctxt->uc_link = sched_ctx;
+		main_tcb->t_ctxt->uc_stack.ss_sp = main_stack;
+		main_tcb->t_ctxt->uc_stack.ss_size = STACK_SIZE;
+		main_tcb->t_ctxt->uc_stack.ss_flags = 0;
+		enqueue(runqueue, main_tcb);
+		currTCB = main_tcb;
+	}
+
+	swapcontext(currTCB->t_ctxt, sched_ctx);
 
 	return 0;
 };
