@@ -50,6 +50,9 @@ typedef struct TCB
 
 	// thread priority for MLFQ
 	int priority;
+
+	// thread that has yielded
+	int yield;
 } tcb;
 
 /* mutex struct definition */

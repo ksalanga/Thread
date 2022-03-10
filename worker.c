@@ -83,13 +83,18 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 			exit(1);
 		}
 
-		main_tcb->t_ctxt->uc_link = sched_ctx;
+		// TODO:
+		// Temporarily make uc_link to null so that we can test if this stuff actually works.
+		// In actual implementation, make uc_link = sched_ctx
+		// main_tcb->t_ctxt->uc_link = sched_ctx;
+		main_tcb->t_ctxt->uc_link = NULL;
 		main_tcb->t_ctxt->uc_stack.ss_sp = main_stack;
 		main_tcb->t_ctxt->uc_stack.ss_size = STACK_SIZE;
 		main_tcb->t_ctxt->uc_stack.ss_flags = 0;
-		enqueue(runqueue, main_tcb);
 		currTCB = main_tcb;
 	}
+
+	currTCB->yield = 1;
 
 	swapcontext(currTCB->t_ctxt, sched_ctx);
 
@@ -217,36 +222,38 @@ static void schedule()
 
 	// - schedule policy
 
-	struct sigaction sa;
-	sa.sa_handler = schedule;
-	sa.sa_flags = 0;
-	sigfillset(&sa.sa_mask);
-	sigdelset(&sa.sa_mask, SIGPROF);
+	// TODO: ignore timer for now.
 
-	struct itimerval it_val; /* for setting itimer */
-	struct itimerval temp;	 // for resetting timer
+	// struct sigaction sa;
+	// sa.sa_handler = schedule;
+	// sa.sa_flags = 0;
+	// sigfillset(&sa.sa_mask);
+	// sigdelset(&sa.sa_mask, SIGPROF);
 
-	/* Upon SIGALRM, call DoStuff().
-	 * Set interval timer.  We want frequency in ms,
-	 * but the setitimer call needs seconds and useconds. */
-	if (sigaction(SIGPROF, &sa, NULL) == -1)
-	{
-		printf("Unable to catch SIGALRM");
-		exit(1);
-	}
+	// struct itimerval it_val; /* for setting itimer */
+	// struct itimerval temp;	 // for resetting timer
 
-	it_val.it_value.tv_sec = INTERVAL / 1000;
-	it_val.it_value.tv_usec = (INTERVAL * 1000) % 1000000;
-	it_val.it_interval = it_val.it_value;
+	// /* Upon SIGALRM, call DoStuff().
+	//  * Set interval timer.  We want frequency in ms,
+	//  * but the setitimer call needs seconds and useconds. */
+	// if (sigaction(SIGPROF, &sa, NULL) == -1)
+	// {
+	// 	printf("Unable to catch SIGALRM");
+	// 	exit(1);
+	// }
 
-	temp.it_value.tv_sec = INTERVAL / 1000;
-	temp.it_value.tv_usec = (INTERVAL * 1000) % 1000000;
-	temp.it_interval = temp.it_value;
-	if (setitimer(ITIMER_PROF, &temp, &it_val) == -1)
-	{
-		printf("error calling setitimer()");
-		exit(1);
-	}
+	// it_val.it_value.tv_sec = INTERVAL / 1000;
+	// it_val.it_value.tv_usec = (INTERVAL * 1000) % 1000000;
+	// it_val.it_interval = it_val.it_value;
+
+	// temp.it_value.tv_sec = INTERVAL / 1000;
+	// temp.it_value.tv_usec = (INTERVAL * 1000) % 1000000;
+	// temp.it_interval = temp.it_value;
+	// if (setitimer(ITIMER_PROF, &temp, &it_val) == -1)
+	// {
+	// 	printf("error calling setitimer()");
+	// 	exit(1);
+	// }
 
 #ifndef MLFQ
 	// Choose RR
