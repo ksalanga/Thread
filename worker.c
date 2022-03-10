@@ -10,6 +10,7 @@
 struct TCB *currTCB;
 ucontext_t *sched_ctx;
 struct Queue *runqueue;
+worker_t t_id = 0;
 
 #define INTERVAL 1000 /* milliseconds */
 #define STACK_SIZE SIGSTKSZ
@@ -18,7 +19,6 @@ struct Queue *runqueue;
 int worker_create(worker_t *thread, pthread_attr_t *attr,
 				  void *(*function)(void *), void *arg)
 {
-
 	// - create Thread Control Block (TCB)
 	// - create and initialize the context of this worker thread
 	// - allocate space of stack for this thread to run
@@ -38,8 +38,38 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 		runqueue = createQueue(100);
 	}
 
+	// Create Main/Caller Thread Context
+	if (currTCB == NULL)
+	{
+		struct TCB *main_tcb = (struct TCB *)malloc(sizeof(struct TCB));
+		main_tcb->id = t_id;
+		t_id++;
+		main_tcb->status = READY;
+		main_tcb->priority = 0;
+		main_tcb->t_ctxt = (struct ucontext_t *)malloc(sizeof(struct ucontext_t));
+
+		void *main_stack = malloc(STACK_SIZE);
+
+		if (main_stack == NULL)
+		{
+			perror("Failed to allocate main_stack");
+			exit(1);
+		}
+
+		// TODO:
+		// Temporarily make uc_link to null so that we can test if this stuff actually works.
+		// In actual implementation, make uc_link = sched_ctx
+		// main_tcb->t_ctxt->uc_link = sched_ctx;
+		main_tcb->t_ctxt->uc_link = NULL;
+		main_tcb->t_ctxt->uc_stack.ss_sp = main_stack;
+		main_tcb->t_ctxt->uc_stack.ss_size = STACK_SIZE;
+		main_tcb->t_ctxt->uc_stack.ss_flags = 0;
+		currTCB = main_tcb;
+	}
+
 	struct TCB *worker_tcb = (struct TCB *)malloc(sizeof(struct TCB));
-	worker_tcb->id = 0;
+	worker_tcb->id = t_id;
+	t_id++;
 	worker_tcb->status = READY;
 	worker_tcb->priority = 0;
 	worker_tcb->t_ctxt = (struct ucontext_t *)malloc(sizeof(struct ucontext_t));
@@ -65,34 +95,6 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 	getcontext(worker_tcb->t_ctxt);
 	makecontext(worker_tcb->t_ctxt, (void *)&function, 1, arg);
 	enqueue(runqueue, worker_tcb);
-
-	// Create Main/Caller Thread Context
-	if (currTCB == NULL)
-	{
-		struct TCB *main_tcb = (struct TCB *)malloc(sizeof(struct TCB));
-		main_tcb->id = 0;
-		main_tcb->status = READY;
-		main_tcb->priority = 0;
-		main_tcb->t_ctxt = (struct ucontext_t *)malloc(sizeof(struct ucontext_t));
-
-		void *main_stack = malloc(STACK_SIZE);
-
-		if (main_stack == NULL)
-		{
-			perror("Failed to allocate main_stack");
-			exit(1);
-		}
-
-		// TODO:
-		// Temporarily make uc_link to null so that we can test if this stuff actually works.
-		// In actual implementation, make uc_link = sched_ctx
-		// main_tcb->t_ctxt->uc_link = sched_ctx;
-		main_tcb->t_ctxt->uc_link = NULL;
-		main_tcb->t_ctxt->uc_stack.ss_sp = main_stack;
-		main_tcb->t_ctxt->uc_stack.ss_size = STACK_SIZE;
-		main_tcb->t_ctxt->uc_stack.ss_flags = 0;
-		currTCB = main_tcb;
-	}
 
 	currTCB->yield = 1;
 
