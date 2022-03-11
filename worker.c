@@ -7,16 +7,20 @@
 #include "worker.h"
 
 #define STACK_SIZE SIGSTKSZ
+
 struct TCB *currTCB;
 ucontext_t *sched_ctx;
 struct Queue *runqueue;
 worker_t t_id = 0;
 
 struct itimerval it_val; /* for setting itimer */
-struct itimerval temp;
+suseconds_t time_elapsed_usec = 0;
+suseconds_t total_turnaround_time_usec = 0;
+suseconds_t total_response_time_usec = 0;
 
-#define INTERVAL 1000 /* milliseconds */
-#define STACK_SIZE SIGSTKSZ
+#define INTERVAL 10 /* milliseconds */
+#define INTERVAL_USEC (INTERVAL * 1000) % 1000000
+#define INTERVAL_SEC INTERVAL / 1000
 
 /* create a new thread */
 int worker_create(worker_t *thread, pthread_attr_t *attr,
@@ -244,25 +248,12 @@ static void schedule()
 
 	// - schedule policy
 
-	// TODO: ignore timer for now.
-
-	// it_val.it_value.tv_sec = INTERVAL / 1000;
-	// it_val.it_value.tv_usec = (INTERVAL * 1000) % 1000000;
-	// it_val.it_interval = it_val.it_value;
-
-	// temp.it_value.tv_sec = INTERVAL / 1000;
-	// temp.it_value.tv_usec = (INTERVAL * 1000) % 1000000;
-	// temp.it_interval = temp.it_value;
-	// if (setitimer(ITIMER_PROF, &temp, &it_val) == -1)
-	// {
-	// 	printf("error calling setitimer()");
-	// 	exit(1);
-	// }
+	// TODO:
 
 #ifndef MLFQ
-	// Choose RR
+	sched_rr();
 #else
-	// Choose MLFQ
+	sched_mlfq();
 #endif
 }
 
@@ -272,7 +263,62 @@ static void sched_rr()
 	// - your own implementation of RR
 	// (feel free to modify arguments and return types)
 
-	// YOUR CODE HERE
+	// Records time
+	getitimer(ITIMER_PROF, &it_val);
+
+	// Might give a negative or overflow value because it_value w/ sigtimerprof ADDS extra time to the interval.
+	suseconds_t thread_quantum_runtime_usec = INTERVAL_USEC - it_val.it_value.tv_usec;
+
+	// If remaining time greater than 0, quantum did not expire.
+	int quantum_expired = it_val.it_value.tv_usec > 0 ? 0 : 1;
+
+	// Stops timer
+	it_val.it_value.tv_sec = 0;
+	it_val.it_value.tv_usec = 0;
+	if (setitimer(ITIMER_PROF, &it_val, NULL) == -1)
+	{
+		printf("error calling setitimer()");
+		exit(1);
+	}
+
+	time_elapsed_usec += thread_quantum_runtime_usec;
+
+	if (!quantum_expired && !currTCB->yield)
+	{
+		worker_exit(NULL);
+		total_turnaround_time_usec += (time_elapsed_usec - currTCB->arrival_time_usec);
+	}
+	else
+	{
+		currTCB->yield = 0;
+		enqueue(runqueue, currTCB);
+	}
+
+	currTCB = dequeue(runqueue);
+
+	if (currTCB != NULL)
+	{
+		if (currTCB->quanta == 0)
+		{
+			total_response_time_usec = time_elapsed_usec - currTCB->arrival_time_usec;
+		}
+	}
+	else
+	{
+		// empty runqueue
+		// check if blockqueue is empty as well, then stop process.
+		// with MLFQ might want to check other priority levels as well.
+	}
+
+	it_val.it_value.tv_sec = INTERVAL_SEC;
+	it_val.it_value.tv_usec = INTERVAL_USEC;
+	it_val.it_interval = it_val.it_value;
+	if (setitimer(ITIMER_PROF, &it_val, NULL) == -1)
+	{
+		printf("error calling setitimer()");
+		exit(1);
+	}
+	setcontext(currTCB->t_ctxt);
 }
 
 /* Preemptive MLFQ scheduling algorithm */
