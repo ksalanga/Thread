@@ -56,6 +56,8 @@ typedef struct TCB
 
 	// amount of quanta thread has run for
 	int quanta;
+
+	suseconds_t arrival_time_usec;
 } tcb;
 
 /* mutex struct definition */
@@ -88,7 +90,8 @@ void enqueue(struct Queue *q, tcb *item);
 tcb *dequeue(struct Queue *q);
 
 static void schedule();
-
+static void sched_rr();
+static void sched_mlfq();
 // MLFQ
 queue PriorityArray[4];
 
