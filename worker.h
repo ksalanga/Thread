@@ -53,6 +53,9 @@ typedef struct TCB
 
 	// thread that has yielded
 	int yield;
+
+	// amount of quanta thread has run for
+	int quanta;
 } tcb;
 
 /* mutex struct definition */
