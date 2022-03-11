@@ -12,6 +12,9 @@ ucontext_t *sched_ctx;
 struct Queue *runqueue;
 worker_t t_id = 0;
 
+struct itimerval it_val; /* for setting itimer */
+struct itimerval temp;
+
 #define INTERVAL 1000 /* milliseconds */
 #define STACK_SIZE SIGSTKSZ
 
