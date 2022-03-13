@@ -11,6 +11,7 @@
 struct TCB *currTCB;
 ucontext_t *sched_ctx;
 struct Queue *runqueue;
+struct Queue *blockdequeue;
 worker_t t_id = 0;
 
 struct itimerval it_val; /* for setting itimer */
@@ -31,7 +32,7 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 	// after everything is set, push this thread into run queue and
 	// - make it ready for the execution.
 
-	if (sched_ctx == NULL)
+	if (sched_ctx == NULL) //first thread creation
 	{
 		// Create Signal for Timer
 		struct sigaction sa;
@@ -58,6 +59,7 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 		makecontext(sched_ctx, schedule, 0);
 
 		runqueue = createQueue();
+		blockdequeue = createQueue;
 	}
 
 	// Create Main/Caller Thread Context
@@ -211,9 +213,13 @@ int worker_mutex_lock(worker_mutex_t *mutex)
 		mutex->lock = LOCKED;
 		currTCB->status = RUNNING; // either running or ready
 	}
-	else if (mutex->lock == LOCKED)
+	
+	//TODO:
+	// add threads onto blocked queue when it hits locked mutex
+	else if (mutex->lock == LOCKED) 
 	{
 		currTCB->status = BLOCKED;
+		enqueue(blockdequeue, currTCB);
 	}
 
 	return 0;
@@ -226,9 +232,14 @@ int worker_mutex_unlock(worker_mutex_t *mutex)
 	// - put threads in block list to run queue
 	// so that they could compete for mutex later.
 
+	//dequeue each thread from blocked queue and allow each thread to access variable in mutex
+
 	if (mutex->lock == LOCKED)
 	{
 		mutex->lock = UNLOCKED;
+		struct TCB *blockedTCB = dequeue(blockdequeue);
+		blockedTCB->status = READY;
+		enqueue(runqueue, blockedTCB);
 	}
 
 	return 0;
