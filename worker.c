@@ -14,7 +14,6 @@ struct Queue *runqueue;
 worker_t t_id = 0;
 
 struct itimerval it_val; /* for setting itimer */
-suseconds_t time_elapsed_usec = 0;
 suseconds_t total_turnaround_time_usec = 0;
 suseconds_t total_response_time_usec = 0;
 
@@ -69,6 +68,7 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 		t_id++;
 		main_tcb->status = READY;
 		main_tcb->priority = 0;
+		main_tcb->quanta = 0;
 		main_tcb->t_ctxt = (struct ucontext_t *)malloc(sizeof(struct ucontext_t));
 
 		void *main_stack = malloc(STACK_SIZE);
@@ -87,6 +87,12 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 		main_tcb->t_ctxt->uc_stack.ss_sp = main_stack;
 		main_tcb->t_ctxt->uc_stack.ss_size = STACK_SIZE;
 		main_tcb->t_ctxt->uc_stack.ss_flags = 0;
+
+		// Record Arrival Time of Caller
+		struct timeval caller_arrival_time;
+		gettimeofday(&caller_arrival_time, NULL);
+		main_tcb->arrival_time_usec = caller_arrival_time.tv_usec;
+
 		currTCB = main_tcb;
 	}
 
@@ -95,6 +101,7 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 	t_id++;
 	worker_tcb->status = READY;
 	worker_tcb->priority = 0;
+	worker_tcb->quanta = 0;
 	worker_tcb->t_ctxt = (struct ucontext_t *)malloc(sizeof(struct ucontext_t));
 
 	void *worker_stack = malloc(STACK_SIZE);
@@ -111,6 +118,11 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 	worker_tcb->t_ctxt->uc_stack.ss_size = STACK_SIZE;
 	worker_tcb->t_ctxt->uc_stack.ss_flags = 0;
 
+	// Record Arrival Time of Worker
+	struct timeval worker_arrival_time;
+	gettimeofday(&worker_arrival_time, NULL);
+	worker_tcb->arrival_time_usec = worker_arrival_time.tv_usec;
+
 	// TODO
 	// if RR put into runqueue, if MLFQ, put into top priority queue
 
@@ -119,7 +131,7 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 	makecontext(worker_tcb->t_ctxt, (void *)&function, 1, arg);
 	enqueue(runqueue, worker_tcb);
 
-	// Temporarily Yield to the Scheduler Ctxt
+	// Caller temporarily yields to the Scheduler Ctxt
 	currTCB->yield = 1;
 
 	swapcontext(currTCB->t_ctxt, sched_ctx);
@@ -249,9 +261,10 @@ static void schedule()
 	// - schedule policy
 
 	// TODO:
+	// just run rr for now
 
-#ifndef MLFQ
 	sched_rr();
+#ifndef MLFQ
 #else
 	sched_mlfq();
 #endif
@@ -262,12 +275,6 @@ static void sched_rr()
 {
 	// - your own implementation of RR
 	// (feel free to modify arguments and return types)
-
-	// Records time
-	getitimer(ITIMER_PROF, &it_val);
-
-	// Might give a negative or overflow value because it_value w/ sigtimerprof ADDS extra time to the interval.
-	suseconds_t thread_quantum_runtime_usec = INTERVAL_USEC - it_val.it_value.tv_usec;
 
 	// If remaining time greater than 0, quantum did not expire.
 	int quantum_expired = it_val.it_value.tv_usec > 0 ? 0 : 1;
@@ -281,16 +288,18 @@ static void sched_rr()
 		exit(1);
 	}
 
-	time_elapsed_usec += thread_quantum_runtime_usec;
-
 	if (!quantum_expired && !currTCB->yield)
 	{
 		worker_exit(NULL);
-		total_turnaround_time_usec += (time_elapsed_usec - currTCB->arrival_time_usec);
+		struct timeval finished_time;
+		gettimeofday(&finished_time, NULL);
+
+		total_turnaround_time_usec += (finished_time.tv_usec - currTCB->arrival_time_usec);
 	}
 	else
 	{
 		currTCB->yield = 0;
+		getcontext(currTCB->t_ctxt);
 		enqueue(runqueue, currTCB);
 	}
 
@@ -300,8 +309,13 @@ static void sched_rr()
 	{
 		if (currTCB->quanta == 0)
 		{
-			total_response_time_usec = time_elapsed_usec - currTCB->arrival_time_usec;
+			struct timeval initial_schedule_time;
+			gettimeofday(&initial_schedule_time, NULL);
+			total_response_time_usec = (initial_schedule_time.tv_sec - currTCB->arrival_time_usec);
 		}
+
+		// Thread has ran for one more quanta
+		currTCB->quanta++;
 	}
 	else
 	{
@@ -312,7 +326,8 @@ static void sched_rr()
 
 	it_val.it_value.tv_sec = INTERVAL_SEC;
 	it_val.it_value.tv_usec = INTERVAL_USEC;
-	it_val.it_interval = it_val.it_value;
+	it_val.it_interval.tv_sec = 0;
+	it_val.it_interval.tv_usec = 0;
 	if (setitimer(ITIMER_PROF, &it_val, NULL) == -1)
 	{
 		printf("error calling setitimer()");
