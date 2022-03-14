@@ -10,7 +10,7 @@
 
 struct TCB *currTCB;
 ucontext_t *sched_ctx;
-struct Queue *mlfqrunqueue[3];
+struct Queue *mlfqrunqueue[4];
 struct Queue *runqueue;
 struct Queue *blockedqueue;
 worker_t t_id = 0;
@@ -253,7 +253,7 @@ int worker_mutex_unlock(worker_mutex_t *mutex)
 		if(isRR == 0){
 			enqueue(runqueue, blockedTCB);
 		}else{
-			enqueue(mlfqrunqueue[blockedTCB->priority], blockedTCB);
+			enqueue(mlfqrunqueue[blockedTCB->priority], blockedTCB); //should thread be put into top queue or back into priority queue it already was in?
 		}
 	}
 
