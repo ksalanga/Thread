@@ -14,7 +14,7 @@ struct Queue *mlfqrunqueue[3];
 struct Queue *runqueue;
 struct Queue *blockedqueue;
 worker_t t_id = 0;
-int currPriority;
+int isRR;
 
 struct itimerval it_val; /* for setting itimer */
 suseconds_t total_turnaround_time_usec = 0;
@@ -223,8 +223,14 @@ int worker_mutex_lock(worker_mutex_t *mutex)
 	else if (mutex->lock == LOCKED) 
 	{
 		currTCB->status = BLOCKED;
-		dequeue(runqueue);
+
+		if(isRR == 0){
+			dequeue(runqueue);
+		}else{
+			dequeue(mlfqrunqueue[currTCB->priority]);
+		}
 		enqueue(blockedqueue, currTCB);
+
 	}
 
 	return 0;
@@ -244,7 +250,11 @@ int worker_mutex_unlock(worker_mutex_t *mutex)
 		mutex->lock = UNLOCKED;
 		struct TCB *blockedTCB = dequeue(blockedqueue);
 		blockedTCB->status = READY;
-		enqueue(runqueue, blockedTCB);
+		if(isRR == 0){
+			enqueue(runqueue, blockedTCB);
+		}else{
+			enqueue(mlfqrunqueue[blockedTCB->priority], blockedTCB);
+		}
 	}
 
 	return 0;
