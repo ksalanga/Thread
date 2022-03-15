@@ -58,12 +58,16 @@ typedef struct TCB
 	int quanta;
 
 	suseconds_t arrival_time_usec;
+
+	// mutex id
+	int mutexid;
 } tcb;
 
 /* mutex struct definition */
 typedef struct worker_mutex_t
 {
 	enum lock_status lock;
+	int mutexid;
 } worker_mutex_t;
 
 /* define your data structures here: */

@@ -12,9 +12,9 @@ struct TCB *currTCB;
 ucontext_t *sched_ctx;
 struct Queue *mlfqrunqueue[4];
 struct Queue *runqueue;
-struct Queue *blockedqueue;
 worker_t t_id = 0;
 int isRR;
+int mId = 0;
 
 struct itimerval it_val; /* for setting itimer */
 suseconds_t total_turnaround_time_usec = 0;
@@ -64,7 +64,6 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 			mlfqrunqueue[i] = createQueue();
 		}
 		runqueue = createQueue();
-		blockedqueue = createQueue();
 	}
 
 	// Create Main/Caller Thread Context
@@ -77,6 +76,7 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 		main_tcb->priority = 0;
 		main_tcb->quanta = 0;
 		main_tcb->t_ctxt = (struct ucontext_t *)malloc(sizeof(struct ucontext_t));
+		main_tcb->mutexid = 0;
 
 		void *main_stack = malloc(STACK_SIZE);
 
@@ -110,6 +110,7 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 	worker_tcb->priority = 0;
 	worker_tcb->quanta = 0;
 	worker_tcb->t_ctxt = (struct ucontext_t *)malloc(sizeof(struct ucontext_t));
+	worker_tcb->mutexid = 0;
 
 	void *worker_stack = malloc(STACK_SIZE);
 
@@ -200,6 +201,8 @@ int worker_mutex_init(worker_mutex_t *mutex,
 
 	mutex = (worker_mutex_t *)(malloc(sizeof(struct worker_mutex_t)));
 	mutex->lock = UNLOCKED;
+	mId++;
+	mutex->mutexid = mId;
 
 	return 0;
 };
@@ -213,24 +216,17 @@ int worker_mutex_lock(worker_mutex_t *mutex)
 	// - if acquiring mutex fails, push current thread into block list and
 	// context switch to the scheduler thread
 
+	currTCB->mutexid = mutex->mutexid;
+
 	if (mutex->lock == UNLOCKED)
 	{
 		mutex->lock = LOCKED;
 		currTCB->status = RUNNING; // either running or ready
 	}
 	
-	// removes from run queue and adds to blocked queue
 	else if (mutex->lock == LOCKED) 
 	{
 		currTCB->status = BLOCKED;
-
-		if(isRR == 0){
-			dequeue(runqueue);
-		}else{
-			dequeue(mlfqrunqueue[currTCB->priority]);
-		}
-		enqueue(blockedqueue, currTCB);
-
 	}
 
 	return 0;
@@ -248,12 +244,13 @@ int worker_mutex_unlock(worker_mutex_t *mutex)
 	if (mutex->lock == LOCKED)
 	{
 		mutex->lock = UNLOCKED;
-		struct TCB *blockedTCB = dequeue(blockedqueue);
-		blockedTCB->status = READY;
-		if(isRR == 0){
-			enqueue(runqueue, blockedTCB);
-		}else{
-			enqueue(mlfqrunqueue[blockedTCB->priority], blockedTCB); //should thread be put into top queue or back into priority queue it already was in?
+		
+		struct QNode *ptr = runqueue->front;
+		while(ptr != NULL){
+			if(ptr->tcb->mutexid == mutex->mutexid){
+				ptr->tcb->status = READY;
+			}
+			ptr = ptr->next;
 		}
 	}
 
