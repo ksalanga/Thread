@@ -92,11 +92,7 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 			exit(1);
 		}
 
-		// TODO:
-		// Temporarily make uc_link to null so that we can test if this stuff actually works.
-		// In actual implementation, make uc_link = sched_ctx
-		// main_tcb->t_ctxt->uc_link = sched_ctx;
-		main_tcb->t_ctxt->uc_link = NULL;
+		main_tcb->t_ctxt->uc_link = sched_ctx;
 		main_tcb->t_ctxt->uc_stack.ss_sp = main_stack;
 		main_tcb->t_ctxt->uc_stack.ss_size = STACK_SIZE;
 		main_tcb->t_ctxt->uc_stack.ss_flags = 0;
@@ -106,19 +102,24 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 		gettimeofday(&caller_arrival_time, NULL);
 		main_tcb->arrival_time_usec = caller_arrival_time.tv_usec;
 
+		// Stops timer
+		it_val.it_value.tv_sec = 0;
+		it_val.it_value.tv_usec = 0;
+
 		currTCB = main_tcb;
 	}
 
 
 	struct TCB *worker_tcb = (struct TCB *)malloc(sizeof(struct TCB));
 	worker_tcb->id = t_id;
+	*thread = t_id;
 	t_id++;
 	worker_tcb->status = READY;
 	worker_tcb->priority = 0;
 	worker_tcb->quanta = 0;
 	worker_tcb->t_ctxt = (struct ucontext_t *)malloc(sizeof(struct ucontext_t));
 	worker_tcb->mutexid = 0;
-	
+
 	if (getcontext(worker_tcb->t_ctxt) < 0) {
 		perror("getcontext");
 		exit(1);
@@ -133,11 +134,7 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 	}
 
 	/* Setup context that we are going to use */
-	// worker_tcb->t_ctxt->uc_link = sched_ctx;
-
-	// TODO:
-	// temporarily null context
-	worker_tcb->t_ctxt->uc_link = NULL;
+	worker_tcb->t_ctxt->uc_link = sched_ctx;
 	worker_tcb->t_ctxt->uc_stack.ss_sp = worker_stack;
 	worker_tcb->t_ctxt->uc_stack.ss_size = STACK_SIZE;
 	worker_tcb->t_ctxt->uc_stack.ss_flags = 0;
@@ -151,14 +148,8 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 	// if RR put into runqueue, if MLFQ, put into top priority queue
 
 	// Create Worker Thread Context
-	makecontext(worker_tcb->t_ctxt, (void *)&function, 1, arg);
-	
-	// let's see if method even runs
+	makecontext(worker_tcb->t_ctxt, (void *)function, 1, arg);
 
-	ucontext_t nctx;
-	puts("nct");
-	setcontext(worker_tcb->t_ctxt);
-	puts("we made it");
 	enqueue(runqueue, worker_tcb);
 
 	// Caller temporarily yields to the Scheduler Ctxt
@@ -306,7 +297,6 @@ int worker_mutex_destroy(worker_mutex_t *mutex)
 /* scheduler */
 static void schedule()
 {
-	printf("Made it\n");
 	// - every time a timer interrupt occurs, your worker thread library
 	// should be contexted switched from a thread context to this
 	// schedule() function
@@ -361,7 +351,6 @@ static void sched_rr()
 	else
 	{
 		currTCB->yield = 0;
-		getcontext(currTCB->t_ctxt);
 		enqueue(runqueue, currTCB);
 	}
 
@@ -395,7 +384,6 @@ static void sched_rr()
 		printf("error calling setitimer()");
 		exit(1);
 	}
-	getcontext(currTCB->t_ctxt);
 	setcontext(currTCB->t_ctxt);
 }
 
