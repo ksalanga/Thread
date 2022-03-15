@@ -433,7 +433,7 @@ static void sched_mlfq()
 
 	if(currTCB == NULL && currPriority != 3){
 		int tempPriority = currPriority +1;
-		currTCB = mlfqrunqueue[tempPriority]->front;
+		currTCB = dequeue(mlfqrunqueue[tempPriority]);
 	}else if(currPriority == 3){
 		currPriority = 0;
 	}
