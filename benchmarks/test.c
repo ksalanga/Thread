@@ -14,19 +14,29 @@
 void checkCtxt(struct Queue *q);
 struct Queue *setupQueue();
 void *foo(void *arg);
+void *bar(void *arg);
 int i = 870;
 
 int main(int argc, char **argv)
 {
-	worker_t t;
-	worker_create(&t, NULL, &foo, NULL);
-	printf("Good evening");
+	worker_t t1;
+	worker_t t2;
+	worker_create(&t1, NULL, &foo, NULL);
+	worker_create(&t2, NULL, &bar, NULL);
+	puts("Good evening");
 	return 0;
 }
 
 void *foo(void *arg) {
-	puts("lalalalal");
-	printf("I did something\n");
+	for (int i = 0; i < 10; i++) {	
+		puts("foo");
+	}
+}
+
+void *bar(void *arg) {
+	for (int i = 0; i < 10; i++) {	
+		puts("bar");
+	}
 }
 
 struct Queue *setupQueue()
