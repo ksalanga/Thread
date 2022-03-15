@@ -13,7 +13,7 @@ ucontext_t *sched_ctx;
 struct Queue *mlfqrunqueue[4];// 0 IS TOP LEVEL, 3 IS BOTTOM
 struct Queue *runqueue;
 worker_t t_id = 0;
-int isRR;// 0 = RR , 1 = MLFQ
+int isRR;// 0 = MLFQ , 1 = RR
 int mId = 0;
 int currPriority = 0;
 
@@ -259,7 +259,7 @@ int worker_mutex_unlock(worker_mutex_t *mutex)
 	{
 		mutex->lock = UNLOCKED;
 		
-		if(isRR == 0){
+		if(isRR == 1){
 			struct QNode *ptr = runqueue->front;
 			while(ptr != NULL){
 				if(ptr->tcb->mutexid == mutex->mutexid){
@@ -493,8 +493,9 @@ tcb *dequeue(struct Queue *q)
 }
 
 //  		CASE IS WHEN TIME QUANTUM FULLY ELAPSED AND CODE IS STILL REMAINING
-//			
+//		if((isRR == 0) && (quantum_expired == 1) && (currTCB->yield == 1)){			
 // 			getcontext(currTCB->t_ctxt);
 // 			if(currPriority != 3){
 // 				int tempPriority = currPriority + 1;
 // 				enqueue(mlfqrunqueue[tempPriority], currTCB);
+//		}
