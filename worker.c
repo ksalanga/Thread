@@ -15,14 +15,20 @@ struct Queue *runqueue;
 worker_t t_id = 0;
 int isRR;
 int mId = 0;
+int currPriority = 0;
 
 struct itimerval it_val; /* for setting itimer */
+struct itimerval reset_val; //reset timer for mlfq
 suseconds_t total_turnaround_time_usec = 0;
 suseconds_t total_response_time_usec = 0;
 
 #define INTERVAL 10 /* milliseconds */
 #define INTERVAL_USEC (INTERVAL * 1000) % 1000000
 #define INTERVAL_SEC INTERVAL / 1000
+
+#define r_INTERVAL 50 /* milliseconds */
+#define r_INTERVAL_USEC (r_INTERVAL * 1000) % 1000000
+#define r_INTERVAL_SEC r_INTERVAL / 1000
 
 /* create a new thread */
 int worker_create(worker_t *thread, pthread_attr_t *attr,
@@ -243,6 +249,7 @@ int worker_mutex_lock(worker_mutex_t *mutex)
 	else if (mutex->lock == LOCKED) 
 	{
 		currTCB->status = BLOCKED;
+		worker_yield();
 	}
 
 	return 0;
@@ -398,7 +405,52 @@ static void sched_mlfq()
 	// - your own implementation of MLFQ
 	// (feel free to modify arguments and return types)
 
-	// YOUR CODE HERE
+	int resetTimerExp = reset_val.it_value.tv_usec > 0 ? 0 : 1;
+
+	reset_val.it_value.tv_usec = 0;
+	reset_val.it_value.tv_sec = 0;
+
+	if (setitimer(ITIMER_PROF, &reset_val, NULL) == -1)
+	{
+		printf("error calling setitimer()");
+		exit(1);
+	}
+
+	if(!resetTimerExp){
+		//move all threads to top queue
+		int i = 1;
+			struct QNode *ptr = mlfqrunqueue[i]->front;
+			while(ptr != NULL){
+				enqueue(mlfqrunqueue[0], dequeue(mlfqrunqueue[i]));
+				if((ptr->next == NULL) && (i != 3)){
+					i++;
+					ptr = mlfqrunqueue[i]->front;
+				}
+				ptr = ptr->next;
+			}
+
+	}
+
+	if(currTCB == NULL && currPriority != 3){
+		int tempPriority = currPriority +1;
+		currTCB = mlfqrunqueue[tempPriority]->front;
+	}else if(currPriority == 3){
+		currPriority = 0;
+	}
+	runqueue = mlfqrunqueue[currPriority];
+	sched_rr();
+
+	
+	reset_val.it_value.tv_sec = r_INTERVAL_SEC;
+	reset_val.it_value.tv_usec = r_INTERVAL_USEC;
+	reset_val.it_interval.tv_sec = 0;
+	reset_val.it_interval.tv_usec = 0;
+	if (setitimer(ITIMER_PROF, &reset_val, NULL) == -1)
+	{
+		printf("error calling setitimer()");
+		exit(1);
+	}
+
 }
 
 // Feel free to add any other functions you need
@@ -449,3 +501,9 @@ tcb *dequeue(struct Queue *q)
 	free(node);
 	return tcb;
 }
+
+// currTCB->yield = 0;
+// 			getcontext(currTCB->t_ctxt);
+// 			if(currPriority != 3){
+// 				int tempPriority = currPriority + 1;
+// 				enqueue(mlfqrunqueue[tempPriority], currTCB);
