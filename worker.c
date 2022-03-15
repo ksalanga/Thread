@@ -417,6 +417,16 @@ static void sched_mlfq()
 			ptr = ptr->next;
 		}
 
+		reset_val.it_value.tv_sec = r_INTERVAL_SEC;
+		reset_val.it_value.tv_usec = r_INTERVAL_USEC;
+		reset_val.it_interval.tv_sec = 0;
+		reset_val.it_interval.tv_usec = 0;
+		if (setitimer(ITIMER_PROF, &reset_val, NULL) == -1)
+		{
+			printf("error calling setitimer()");
+			exit(1);
+		}
+
 	}
 
 	if(currTCB == NULL && currPriority != 3){
@@ -429,15 +439,7 @@ static void sched_mlfq()
 	sched_rr();
 
 	
-	reset_val.it_value.tv_sec = r_INTERVAL_SEC;
-	reset_val.it_value.tv_usec = r_INTERVAL_USEC;
-	reset_val.it_interval.tv_sec = 0;
-	reset_val.it_interval.tv_usec = 0;
-	if (setitimer(ITIMER_PROF, &reset_val, NULL) == -1)
-	{
-		printf("error calling setitimer()");
-		exit(1);
-	}
+	
 
 }
 
