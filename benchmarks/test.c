@@ -13,16 +13,19 @@
 
 void checkCtxt(struct Queue *q);
 struct Queue *setupQueue();
+void *foo(void *arg);
 int i = 870;
 
 int main(int argc, char **argv)
 {
-	struct Queue *q = setupQueue();
-	struct Queue *q2 = setupQueue();
-
-	checkCtxt(q);
-	checkCtxt(q2);
+	worker_t t;
+	worker_create(&t, NULL, &foo, NULL);
+	printf("Good evening");
 	return 0;
+}
+
+void *foo(void *arg) {
+	printf("I did something\n");
 }
 
 struct Queue *setupQueue()

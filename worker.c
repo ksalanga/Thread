@@ -127,7 +127,11 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 	}
 
 	/* Setup context that we are going to use */
-	worker_tcb->t_ctxt->uc_link = sched_ctx;
+	// worker_tcb->t_ctxt->uc_link = sched_ctx;
+
+	// TODO:
+	// temporarily null context
+	worker_tcb->t_ctxt->uc_link = NULL;
 	worker_tcb->t_ctxt->uc_stack.ss_sp = worker_stack;
 	worker_tcb->t_ctxt->uc_stack.ss_size = STACK_SIZE;
 	worker_tcb->t_ctxt->uc_stack.ss_flags = 0;
@@ -143,6 +147,9 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 	// Create Worker Thread Context
 	getcontext(worker_tcb->t_ctxt);
 	makecontext(worker_tcb->t_ctxt, (void *)&function, 1, arg);
+	
+	// let's see if method even runs
+	setcontext(worker_tcb->t_ctxt);
 	enqueue(runqueue, worker_tcb);
 
 	// Caller temporarily yields to the Scheduler Ctxt
@@ -290,6 +297,7 @@ int worker_mutex_destroy(worker_mutex_t *mutex)
 /* scheduler */
 static void schedule()
 {
+	printf("Made it\n");
 	// - every time a timer interrupt occurs, your worker thread library
 	// should be contexted switched from a thread context to this
 	// schedule() function
@@ -335,11 +343,11 @@ static void sched_rr()
 
 	if (!quantum_expired && !currTCB->yield)
 	{
-		worker_exit(NULL);
 		struct timeval finished_time;
 		gettimeofday(&finished_time, NULL);
-
 		total_turnaround_time_usec += (finished_time.tv_usec - currTCB->arrival_time_usec);
+
+		worker_exit(NULL);
 	}
 	else
 	{
@@ -378,6 +386,7 @@ static void sched_rr()
 		printf("error calling setitimer()");
 		exit(1);
 	}
+	getcontext(currTCB->t_ctxt);
 	setcontext(currTCB->t_ctxt);
 }
 
