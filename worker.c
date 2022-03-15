@@ -252,12 +252,27 @@ int worker_mutex_unlock(worker_mutex_t *mutex)
 	{
 		mutex->lock = UNLOCKED;
 		
-		struct QNode *ptr = runqueue->front;
-		while(ptr != NULL){
-			if(ptr->tcb->mutexid == mutex->mutexid){
-				ptr->tcb->status = READY;
+		if(isRR == 0){
+			struct QNode *ptr = runqueue->front;
+			while(ptr != NULL){
+				if(ptr->tcb->mutexid == mutex->mutexid){
+					ptr->tcb->status = READY;
+				}
+				ptr = ptr->next;
 			}
-			ptr = ptr->next;
+		}else{
+			int i = 0;
+			struct QNode *ptr = mlfqrunqueue[i]->front;
+			while(ptr != NULL){
+				if(ptr->tcb->mutexid == mutex->mutexid){
+					ptr->tcb->status = READY;
+				}
+				if((ptr->next == NULL) && (i != 3)){
+					i++;
+					ptr = mlfqrunqueue[i]->front;
+				}
+				ptr = ptr->next;
+			}
 		}
 	}
 
