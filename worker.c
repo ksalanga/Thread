@@ -10,10 +10,10 @@
 
 struct TCB *currTCB;
 ucontext_t *sched_ctx;
-struct Queue *mlfqrunqueue[4];
+struct Queue *mlfqrunqueue[4];// 0 IS TOP LEVEL, 3 IS BOTTOM
 struct Queue *runqueue;
 worker_t t_id = 0;
-int isRR;
+int isRR;// 0 = RR , 1 = MLFQ
 int mId = 0;
 int currPriority = 0;
 
@@ -404,18 +404,18 @@ static void sched_mlfq()
 		exit(1);
 	}
 
-	if(!resetTimerExp){
+	if(resetTimerExp == 1){
 		//move all threads to top queue
 		int i = 1;
-			struct QNode *ptr = mlfqrunqueue[i]->front;
-			while(ptr != NULL){
-				enqueue(mlfqrunqueue[0], dequeue(mlfqrunqueue[i]));
-				if((ptr->next == NULL) && (i != 3)){
-					i++;
-					ptr = mlfqrunqueue[i]->front;
-				}
-				ptr = ptr->next;
+		struct QNode *ptr = mlfqrunqueue[i]->front;
+		while(ptr != NULL){
+			enqueue(mlfqrunqueue[0], dequeue(mlfqrunqueue[i]));
+			if((ptr->next == NULL) && (i != 3)){
+				i++;
+				ptr = mlfqrunqueue[i]->front;
 			}
+			ptr = ptr->next;
+		}
 
 	}
 
@@ -490,7 +490,8 @@ tcb *dequeue(struct Queue *q)
 	return tcb;
 }
 
-// currTCB->yield = 0;
+//  		CASE IS WHEN TIME QUANTUM FULLY ELAPSED AND CODE IS STILL REMAINING
+//			
 // 			getcontext(currTCB->t_ctxt);
 // 			if(currPriority != 3){
 // 				int tempPriority = currPriority + 1;
