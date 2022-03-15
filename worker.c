@@ -103,6 +103,7 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 		currTCB = main_tcb;
 	}
 
+
 	struct TCB *worker_tcb = (struct TCB *)malloc(sizeof(struct TCB));
 	worker_tcb->id = t_id;
 	t_id++;
@@ -111,6 +112,11 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 	worker_tcb->quanta = 0;
 	worker_tcb->t_ctxt = (struct ucontext_t *)malloc(sizeof(struct ucontext_t));
 	worker_tcb->mutexid = 0;
+	
+	if (getcontext(worker_tcb->t_ctxt) < 0) {
+		perror("getcontext");
+		exit(1);
+	}
 
 	void *worker_stack = malloc(STACK_SIZE);
 
@@ -139,11 +145,14 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 	// if RR put into runqueue, if MLFQ, put into top priority queue
 
 	// Create Worker Thread Context
-	getcontext(worker_tcb->t_ctxt);
 	makecontext(worker_tcb->t_ctxt, (void *)&function, 1, arg);
 	
 	// let's see if method even runs
+
+	ucontext_t nctx;
+	puts("nct");
 	setcontext(worker_tcb->t_ctxt);
+	puts("we made it");
 	enqueue(runqueue, worker_tcb);
 
 	// Caller temporarily yields to the Scheduler Ctxt

@@ -25,6 +25,7 @@ int main(int argc, char **argv)
 }
 
 void *foo(void *arg) {
+	puts("lalalalal");
 	printf("I did something\n");
 }
 
