@@ -23,19 +23,44 @@ int main(int argc, char **argv)
 	worker_t t2;
 	worker_create(&t1, NULL, &foo, NULL);
 	worker_create(&t2, NULL, &bar, NULL);
-	puts("Good evening");
-	return 0;
-}
-
-void *foo(void *arg) {
-	for (int i = 0; i < 10; i++) {	
-		puts("foo");
+	int stack_i = 0;
+	while (1)
+	{
+		if (stack_i % 19 == 0 && stack_i % 24 == 0 && stack_i % 37 == 0 && stack_i % 105 == 0) // && i % 2049 == 0
+			fprintf(stdout, "main: %d\n", stack_i);
+		stack_i++;
 	}
 }
 
-void *bar(void *arg) {
-	for (int i = 0; i < 10; i++) {	
-		puts("bar");
+void *foo(void *arg)
+{
+	int i = 0;
+	int counter = 0;
+
+	while (1)
+	{
+		if (i % 19 == 0 && i % 24 == 0 && i % 37 == 0 && i % 105 == 0) // && i % 2049 == 0
+		{
+			fprintf(stdout, "f:%d, %d\n", counter, i);
+			counter++;
+		}
+		i++;
+	}
+}
+
+void *bar(void *arg)
+{
+	int i = 0;
+	int counter = 0;
+
+	while (1)
+	{
+		if (i % 19 == 0 && i % 24 == 0 && i % 37 == 0 && i % 105 == 0) // && i % 2049 == 0
+		{
+			fprintf(stdout, "b:%d, %d\n", counter, i);
+			counter++;
+		}
+		i++;
 	}
 }
 

@@ -10,15 +10,15 @@
 
 struct TCB *currTCB;
 ucontext_t *sched_ctx;
-struct Queue *mlfqrunqueue[4];// 0 IS TOP LEVEL, 3 IS BOTTOM
+struct Queue *mlfqrunqueue[4]; // 0 IS TOP LEVEL, 3 IS BOTTOM
 struct Queue *runqueue;
 worker_t t_id = 0;
-int isRR;// 0 = MLFQ , 1 = RR
+int isRR = 1; // 0 = MLFQ , 1 = RR
 int mId = 0;
 int currPriority = 0;
 
-struct itimerval it_val; /* for setting itimer */
-struct itimerval reset_val; //reset timer for mlfq
+struct itimerval it_val;	/* for setting itimer */
+struct itimerval reset_val; // reset timer for mlfq
 suseconds_t total_turnaround_time_usec = 0;
 suseconds_t total_response_time_usec = 0;
 
@@ -30,6 +30,11 @@ suseconds_t total_response_time_usec = 0;
 #define r_INTERVAL_USEC (r_INTERVAL * 1000) % 1000000
 #define r_INTERVAL_SEC r_INTERVAL / 1000
 
+// TODO: delete later
+static void printqueue();
+
+static void handler();
+
 /* create a new thread */
 int worker_create(worker_t *thread, pthread_attr_t *attr,
 				  void *(*function)(void *), void *arg)
@@ -40,12 +45,11 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 	// after everything is set, push this thread into run queue and
 	// - make it ready for the execution.
 
-	if (sched_ctx == NULL) //first thread creation
+	if (sched_ctx == NULL) // first thread creation
 	{
-		// Create Signal for Timer
 		struct sigaction sa;
 
-		sa.sa_handler = schedule;
+		sa.sa_handler = handler;
 		sa.sa_flags = 0;
 		sigfillset(&sa.sa_mask);
 		sigdelset(&sa.sa_mask, SIGPROF);
@@ -66,49 +70,23 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 		getcontext(sched_ctx);
 		makecontext(sched_ctx, schedule, 0);
 
-		for(int i = 0; i<3;i++){
+		for (int i = 0; i < 3; i++)
+		{
 			mlfqrunqueue[i] = createQueue();
 		}
 		runqueue = createQueue();
-	}
 
-	// Create Main/Caller Thread Context
-	if (currTCB == NULL)
-	{
-		struct TCB *main_tcb = (struct TCB *)malloc(sizeof(struct TCB));
-		main_tcb->id = t_id;
-		t_id++;
-		main_tcb->status = READY;
-		main_tcb->priority = 0;
-		main_tcb->quanta = 0;
-		main_tcb->t_ctxt = (struct ucontext_t *)malloc(sizeof(struct ucontext_t));
-		main_tcb->mutexid = 0;
-
-		void *main_stack = malloc(STACK_SIZE);
-
-		if (main_stack == NULL)
+		// Run timer
+		it_val.it_value.tv_sec = INTERVAL_SEC;
+		it_val.it_value.tv_usec = INTERVAL_USEC;
+		it_val.it_interval.tv_sec = 0;
+		it_val.it_interval.tv_usec = 0;
+		if (setitimer(ITIMER_PROF, &it_val, NULL) == -1)
 		{
-			perror("Failed to allocate main_stack");
+			printf("error calling setitimer()");
 			exit(1);
 		}
-
-		main_tcb->t_ctxt->uc_link = sched_ctx;
-		main_tcb->t_ctxt->uc_stack.ss_sp = main_stack;
-		main_tcb->t_ctxt->uc_stack.ss_size = STACK_SIZE;
-		main_tcb->t_ctxt->uc_stack.ss_flags = 0;
-
-		// Record Arrival Time of Caller
-		struct timeval caller_arrival_time;
-		gettimeofday(&caller_arrival_time, NULL);
-		main_tcb->arrival_time_usec = caller_arrival_time.tv_usec;
-
-		// Stops timer
-		it_val.it_value.tv_sec = 0;
-		it_val.it_value.tv_usec = 0;
-
-		currTCB = main_tcb;
 	}
-
 
 	struct TCB *worker_tcb = (struct TCB *)malloc(sizeof(struct TCB));
 	worker_tcb->id = t_id;
@@ -120,7 +98,8 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 	worker_tcb->t_ctxt = (struct ucontext_t *)malloc(sizeof(struct ucontext_t));
 	worker_tcb->mutexid = 0;
 
-	if (getcontext(worker_tcb->t_ctxt) < 0) {
+	if (getcontext(worker_tcb->t_ctxt) < 0)
+	{
 		perror("getcontext");
 		exit(1);
 	}
@@ -152,10 +131,38 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 
 	enqueue(runqueue, worker_tcb);
 
-	// Caller temporarily yields to the Scheduler Ctxt
-	currTCB->yield = 1;
+	// Create Main/Caller Thread Context
+	if (currTCB == NULL)
+	{
+		struct TCB *main_tcb = (struct TCB *)malloc(sizeof(struct TCB));
+		main_tcb->id = t_id;
+		t_id++;
+		main_tcb->status = READY;
+		main_tcb->priority = 0;
+		main_tcb->quanta = 0;
+		main_tcb->t_ctxt = (struct ucontext_t *)malloc(sizeof(struct ucontext_t));
+		main_tcb->mutexid = 0;
 
-	swapcontext(currTCB->t_ctxt, sched_ctx);
+		void *main_stack = malloc(STACK_SIZE);
+
+		if (main_stack == NULL)
+		{
+			perror("Failed to allocate main_stack");
+			exit(1);
+		}
+
+		main_tcb->t_ctxt->uc_link = NULL;
+		main_tcb->t_ctxt->uc_stack.ss_sp = main_stack;
+		main_tcb->t_ctxt->uc_stack.ss_size = STACK_SIZE;
+		main_tcb->t_ctxt->uc_stack.ss_flags = 0;
+
+		// Record Arrival Time of Caller
+		struct timeval caller_arrival_time;
+		gettimeofday(&caller_arrival_time, NULL);
+		main_tcb->arrival_time_usec = caller_arrival_time.tv_usec;
+
+		currTCB = main_tcb;
+	}
 
 	return 0;
 };
@@ -168,9 +175,11 @@ int worker_yield()
 	// - save context of this thread to its thread control block
 	// - switch from thread context to scheduler context
 
-	currTCB->status = READY;
-	// free past thread context?
-	swapcontext(currTCB->t_ctxt, sched_ctx);
+	if (currTCB != NULL)
+	{
+		currTCB->status = READY;
+		swapcontext(currTCB->t_ctxt, sched_ctx);
+	}
 
 	return 0;
 };
@@ -236,8 +245,8 @@ int worker_mutex_lock(worker_mutex_t *mutex)
 		mutex->lock = LOCKED;
 		currTCB->status = RUNNING; // either running or ready
 	}
-	
-	else if (mutex->lock == LOCKED) 
+
+	else if (mutex->lock == LOCKED)
 	{
 		currTCB->status = BLOCKED;
 		worker_yield();
@@ -253,28 +262,36 @@ int worker_mutex_unlock(worker_mutex_t *mutex)
 	// - put threads in block list to run queue
 	// so that they could compete for mutex later.
 
-	//dequeue each thread from blocked queue and allow each thread to access variable in mutex
+	// dequeue each thread from blocked queue and allow each thread to access variable in mutex
 
 	if (mutex->lock == LOCKED)
 	{
 		mutex->lock = UNLOCKED;
-		
-		if(isRR == 1){
+
+		if (isRR == 1)
+		{
 			struct QNode *ptr = runqueue->front;
-			while(ptr != NULL){
-				if(ptr->tcb->mutexid == mutex->mutexid){
+			while (ptr != NULL)
+			{
+				if (ptr->tcb->mutexid == mutex->mutexid)
+				{
 					ptr->tcb->status = READY;
 				}
 				ptr = ptr->next;
 			}
-		}else{
+		}
+		else
+		{
 			int i = 0;
 			struct QNode *ptr = mlfqrunqueue[i]->front;
-			while(ptr != NULL){
-				if(ptr->tcb->mutexid == mutex->mutexid){
+			while (ptr != NULL)
+			{
+				if (ptr->tcb->mutexid == mutex->mutexid)
+				{
 					ptr->tcb->status = READY;
 				}
-				if((ptr->next == NULL) && (i != 3)){
+				if ((ptr->next == NULL) && (i != 3))
+				{
 					i++;
 					ptr = mlfqrunqueue[i]->front;
 				}
@@ -294,41 +311,29 @@ int worker_mutex_destroy(worker_mutex_t *mutex)
 	return 0;
 };
 
+static void handler()
+{
+	worker_yield();
+}
+
 /* scheduler */
 static void schedule()
 {
-	// - every time a timer interrupt occurs, your worker thread library
-	// should be contexted switched from a thread context to this
-	// schedule() function
-
-	// - invoke scheduling algorithms according to the policy (RR or MLFQ)
-
-	// if (sched == RR)
-	//		sched_rr();
-	// else if (sched == MLFQ)
-	// 		sched_mlfq();
-
-	// YOUR CODE HERE
-
-	// - schedule policy
-
-	// TODO:
-	// just run rr for now
-
-	sched_rr();
-#ifndef MLFQ
-#else
-	sched_mlfq();
-#endif
+	if (isRR)
+	{
+		sched_rr();
+	}
+	else
+	{
+		sched_mlfq();
+	}
 }
 
 /* Round-robin (RR) scheduling algorithm */
 static void sched_rr()
 {
-	// - your own implementation of RR
-	// (feel free to modify arguments and return types)
-
 	// If remaining time greater than 0, quantum did not expire.
+	getitimer(ITIMER_PROF, &it_val);
 	int quantum_expired = it_val.it_value.tv_usec > 0 ? 0 : 1;
 
 	// Stops timer
@@ -340,7 +345,7 @@ static void sched_rr()
 		exit(1);
 	}
 
-	if (!quantum_expired && !currTCB->yield)
+	if (currTCB != NULL && !quantum_expired && !currTCB->yield) // Thread has finished, not requeued.
 	{
 		struct timeval finished_time;
 		gettimeofday(&finished_time, NULL);
@@ -348,14 +353,24 @@ static void sched_rr()
 
 		worker_exit(NULL);
 	}
-	else
+	else // Thread has more code to run either through Time Quantum Elapse or Yield
 	{
-		currTCB->yield = 0;
+		if (currTCB != NULL)
+			currTCB->yield = 0;
 		enqueue(runqueue, currTCB);
 	}
 
 	currTCB = dequeue(runqueue);
 
+	// If a Thread has a lock and forgets to unlock the lock,
+	// then we're out of luck, the other threads whoo access the lock will block the scheduler from shutting down.
+	while (currTCB != NULL && currTCB->status == BLOCKED)
+	{
+		enqueue(runqueue, currTCB);
+		currTCB = dequeue(runqueue);
+	}
+
+	// currTCB == first ready TCB in the runqueue
 	if (currTCB != NULL)
 	{
 		if (currTCB->quanta == 0)
@@ -367,6 +382,19 @@ static void sched_rr()
 
 		// Thread has ran for one more quanta
 		currTCB->quanta++;
+
+		// Run timer
+		it_val.it_value.tv_sec = INTERVAL_SEC;
+		it_val.it_value.tv_usec = INTERVAL_USEC;
+		it_val.it_interval.tv_sec = 0;
+		it_val.it_interval.tv_usec = 0;
+		if (setitimer(ITIMER_PROF, &it_val, NULL) == -1)
+		{
+			printf("error calling setitimer()");
+			exit(1);
+		}
+
+		setcontext(currTCB->t_ctxt);
 	}
 	else
 	{
@@ -374,17 +402,28 @@ static void sched_rr()
 		// check if blockqueue is empty as well, then stop process.
 		// with MLFQ might want to check other priority levels as well.
 	}
+	fprintf(stdout, "end");
+}
 
-	it_val.it_value.tv_sec = INTERVAL_SEC;
-	it_val.it_value.tv_usec = INTERVAL_USEC;
-	it_val.it_interval.tv_sec = 0;
-	it_val.it_interval.tv_usec = 0;
-	if (setitimer(ITIMER_PROF, &it_val, NULL) == -1)
+// TODO: delete later
+static void printqueue()
+{
+	if (currTCB != NULL)
 	{
-		printf("error calling setitimer()");
-		exit(1);
+		fprintf(stdout, "|%d|  ", currTCB->id);
 	}
-	setcontext(currTCB->t_ctxt);
+	else
+	{
+		fprintf(stdout, "| |  ");
+	}
+
+	struct QNode *q = runqueue->front;
+	while (q != NULL)
+	{
+		fprintf(stdout, "%d->", q->tcb->id);
+		q = q->next;
+	}
+	fprintf(stdout, "/\n");
 }
 
 /* Preemptive MLFQ scheduling algorithm */
@@ -404,13 +443,16 @@ static void sched_mlfq()
 		exit(1);
 	}
 
-	if(resetTimerExp == 1){
-		//move all threads to top queue
+	if (resetTimerExp == 1)
+	{
+		// move all threads to top queue
 		int i = 1;
 		struct QNode *ptr = mlfqrunqueue[i]->front;
-		while(ptr != NULL){
+		while (ptr != NULL)
+		{
 			enqueue(mlfqrunqueue[0], dequeue(mlfqrunqueue[i]));
-			if((ptr->next == NULL) && (i != 3)){
+			if ((ptr->next == NULL) && (i != 3))
+			{
 				i++;
 				ptr = mlfqrunqueue[i]->front;
 			}
@@ -426,21 +468,19 @@ static void sched_mlfq()
 			printf("error calling setitimer()");
 			exit(1);
 		}
-
 	}
 
-	if(currTCB == NULL && currPriority != 3){
-		int tempPriority = currPriority +1;
+	if (currTCB == NULL && currPriority != 3)
+	{
+		int tempPriority = currPriority + 1;
 		currTCB = dequeue(mlfqrunqueue[tempPriority]);
-	}else if(currPriority == 3){
+	}
+	else if (currPriority == 3)
+	{
 		currPriority = 0;
 	}
 	runqueue = mlfqrunqueue[currPriority];
 	sched_rr();
-
-	
-	
-
 }
 
 // Feel free to add any other functions you need
@@ -462,6 +502,9 @@ struct Queue *createQueue()
 
 void enqueue(struct Queue *q, tcb *tcb)
 {
+	if (tcb == NULL)
+		return;
+
 	struct QNode *temp = newNode(tcb);
 
 	if (q->rear == NULL)
@@ -493,7 +536,7 @@ tcb *dequeue(struct Queue *q)
 }
 
 //  		CASE IS WHEN TIME QUANTUM FULLY ELAPSED AND CODE IS STILL REMAINING
-//		if((isRR == 0) && (quantum_expired == 1) && (currTCB->yield == 1)){			
+//		if((isRR == 0) && (quantum_expired == 1) && (currTCB->yield == 1)){
 // 			getcontext(currTCB->t_ctxt);
 // 			if(currPriority != 3){
 // 				int tempPriority = currPriority + 1;
