@@ -228,8 +228,7 @@ int worker_join(worker_t thread, void **value_ptr)
 	{
 		for (int i = 0; i < 4; i++)
 		{
-			struct Queue *queue = mlfqrunqueue[i];
-			q_ptr = queue->front;
+			q_ptr = mlfqrunqueue[i]->front;
 			while (q_ptr != NULL && q_ptr->tcb->id != thread)
 			{
 				q_ptr = q_ptr->next;
@@ -262,8 +261,8 @@ int worker_join(worker_t thread, void **value_ptr)
 		{
 			worker_yield();
 		}
-		*value_ptr = wait_on_thread->value_ptr;
-		free(wait_on_thread);
+		if (value_ptr != NULL)
+			*value_ptr = wait_on_thread->value_ptr;
 	}
 	// - de-allocate any dynamic memory created by the joining thread
 	return 0;
@@ -275,11 +274,14 @@ int worker_mutex_init(worker_mutex_t *mutex,
 {
 	//- initialize data structures for this mutex
 
-	mutex = (worker_mutex_t *)(malloc(sizeof(struct worker_mutex_t)));
-	mutex->lock = UNLOCKED;
-	mId++;
-	mutex->mutexid = mId;
+	sigset_t set;
+	blockSignalProf(&set);
 
+	mutex->lock = UNLOCKED;
+	mutex->mutexid = mId;
+	mId++;
+
+	unblockSignalProf(&set);
 	return 0;
 };
 
@@ -291,6 +293,8 @@ int worker_mutex_lock(worker_mutex_t *mutex)
 	// - if the mutex is acquired successfully, enter the critical section
 	// - if acquiring mutex fails, push current thread into block list and
 	// context switch to the scheduler thread
+	sigset_t set;
+	blockSignalProf(&set);
 
 	currTCB->mutexid = mutex->mutexid;
 
@@ -298,12 +302,13 @@ int worker_mutex_lock(worker_mutex_t *mutex)
 	{
 		mutex->lock = LOCKED;
 	}
-
 	else if (mutex->lock == LOCKED)
 	{
 		currTCB->status = BLOCKED;
 		worker_yield();
 	}
+
+	unblockSignalProf(&set);
 
 	return 0;
 };
@@ -317,41 +322,45 @@ int worker_mutex_unlock(worker_mutex_t *mutex)
 
 	// dequeue each thread from blocked queue and allow each thread to access variable in mutex
 
+	sigset_t set;
+	blockSignalProf(&set);
+	struct QNode *ptr;
+
+	currTCB->mutexid = -1;
 	if (mutex->lock == LOCKED)
 	{
 		mutex->lock = UNLOCKED;
 
 		if (isRR)
 		{
-			struct QNode *ptr = runqueue->front;
-			while (ptr != NULL)
+			ptr = runqueue->front;
+			while (ptr != NULL && ptr->tcb->mutexid != mutex->mutexid)
 			{
-				if (ptr->tcb->mutexid == mutex->mutexid)
-				{
-					ptr->tcb->status = READY;
-				}
 				ptr = ptr->next;
 			}
 		}
 		else
 		{
-			int i = 0;
-			struct QNode *ptr = mlfqrunqueue[i]->front;
-			while (ptr != NULL)
+
+			for (int i = 0; i < 4; i++)
 			{
-				if (ptr->tcb->mutexid == mutex->mutexid)
+				ptr = mlfqrunqueue[i]->front;
+				while (ptr != NULL && ptr->tcb->mutexid != mutex->mutexid)
 				{
-					ptr->tcb->status = READY;
+					ptr = ptr->next;
 				}
-				if ((ptr->next == NULL) && (i != 3))
+				if (ptr != NULL)
 				{
-					i++;
-					ptr = mlfqrunqueue[i]->front;
+					break;
 				}
-				ptr = ptr->next;
 			}
 		}
+		if (ptr != NULL)
+		{
+			ptr->tcb->status = READY;
+		}
 	}
+	unblockSignalProf(&set);
 
 	return 0;
 };
@@ -410,15 +419,12 @@ static void sched_rr()
 		else // Thread has more code to run either through Time Quantum Elapse or Yield
 		{
 			currTCB->yield = 0;
-			currTCB->status = READY;
 			enqueue(runqueue, currTCB);
 		}
 	}
 
 	currTCB = dequeue(runqueue);
 
-	// If a Thread has a lock and forgets to unlock the lock,
-	// then we're out of luck, the other threads whoo access the lock will block the scheduler from shutting down.
 	while (currTCB != NULL && currTCB->status == BLOCKED)
 	{
 		enqueue(runqueue, currTCB);

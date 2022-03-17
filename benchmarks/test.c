@@ -15,26 +15,55 @@ void checkCtxt(struct Queue *q);
 struct Queue *setupQueue();
 void *foo(void *arg);
 void *bar(void *arg);
-int i = 870;
+void *trythis(void *arg);
+void *trythislock(void *arg);
+long long counter = 0;
+worker_mutex_t lock;
 
 int main(int argc, char **argv)
 {
 	void *ret;
 
 	worker_t t1;
-	worker_create(&t1, NULL, &foo, NULL);
+	worker_t t2;
+
+	worker_mutex_init(&lock, NULL);
+	worker_create(&t1, NULL, &trythislock, NULL);
+	worker_create(&t2, NULL, &trythislock, NULL);
 
 	worker_join(t1, &ret);
+	worker_join(t2, NULL);
 
 	printf("thread exited with '%s'\n", ret);
+}
 
-	// int stack_i = 0;
-	// while (1)
-	// {
-	// 	if (stack_i % 19 == 0 && stack_i % 24 == 0 && stack_i % 37 == 0 && stack_i % 105 == 0) // && i % 2049 == 0
-	// 		fprintf(stdout, "main: %d\n", stack_i);
-	// 	stack_i++;
-	// }
+void *trythis(void *arg)
+{
+	unsigned long i = 0;
+	counter += 1;
+	printf("\n Job %d has started\n", counter);
+
+	for (i = 0; i < (0xFFFFFFFF); i++)
+		;
+	printf("\n Job %d has finished\n", counter);
+
+	return NULL;
+}
+
+void *trythislock(void *arg)
+{
+	worker_mutex_lock(&lock);
+	unsigned long i = 0;
+	counter += 1;
+	printf("\n Job %d has started\n", counter);
+
+	for (i = 0; i < (0xFFFFFFFF); i++)
+		;
+	printf("\n Job %d has finished\n", counter);
+
+	worker_mutex_unlock(&lock);
+
+	return NULL;
 }
 
 void *foo(void *arg)
@@ -88,24 +117,22 @@ struct Queue *setupQueue()
 	struct Queue *q = createQueue(100);
 
 	struct TCB *tcb1 = (struct TCB *)malloc(sizeof(struct TCB));
-	tcb1->id = i;
+	tcb1->id = 0;
 	tcb1->status = 0;
 	tcb1->priority = 0;
 	ucontext_t cctx, cctx2;
 
-	void *stack = malloc(i);
+	void *stack = malloc(200);
 	/* Setup context that we are going to use */
 	cctx.uc_link = NULL;
 	cctx.uc_stack.ss_sp = stack;
-	cctx.uc_stack.ss_size = i;
+	cctx.uc_stack.ss_size = 200;
 	cctx.uc_stack.ss_flags = 0;
 
 	tcb1->t_ctxt = &cctx;
 	printf("Setup context: %x\n", cctx);
 	printf("TCB context: %x\n", tcb1->t_ctxt);
 	enqueue(q, tcb1);
-
-	i++;
 
 	return q;
 }
