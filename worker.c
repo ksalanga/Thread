@@ -12,6 +12,7 @@ struct TCB *currTCB;
 ucontext_t *sched_ctx;
 struct Queue *mlfqrunqueue[4]; // 0 IS TOP LEVEL, 3 IS BOTTOM
 struct Queue *runqueue;
+struct Queue *exitqueue;
 worker_t t_id = 0;
 int isRR = 1; // 0 = MLFQ , 1 = RR
 int mId = 0;
@@ -73,6 +74,7 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 			mlfqrunqueue[i] = createQueue();
 		}
 		runqueue = createQueue();
+		exitqueue = createQueue();
 
 		// Run timer
 		it_val.it_value.tv_sec = INTERVAL_SEC;
@@ -189,6 +191,7 @@ void worker_exit(void *value_ptr)
 	free(currTCB->t_ctxt);
 	currTCB->status = EXIT;
 	currTCB->value_ptr = value_ptr;
+	enqueue(exitqueue, currTCB);
 	currTCB = NULL;
 
 	unblockSignalProf(&set);
@@ -204,16 +207,21 @@ int worker_join(worker_t thread, void **value_ptr)
 	sigset_t set;
 	blockSignalProf(&set);
 
+	struct QNode *q_ptr;
 	if (isRR)
 	{
-		struct QNode *q = runqueue->front;
-		while (q != NULL && q->tcb->id != thread)
+		q_ptr = runqueue->front;
+		while (q_ptr != NULL && q_ptr->tcb->id != thread)
 		{
-			q = q->next;
+			q_ptr = q_ptr->next;
 		}
-		if (q != NULL)
+		if (q_ptr == NULL)
 		{
-			wait_on_thread = q->tcb;
+			q_ptr = exitqueue->front;
+			while (q_ptr != NULL && q_ptr->tcb->id != thread)
+			{
+				q_ptr = q_ptr->next;
+			}
 		}
 	}
 	else
@@ -221,17 +229,29 @@ int worker_join(worker_t thread, void **value_ptr)
 		for (int i = 0; i < 4; i++)
 		{
 			struct Queue *queue = mlfqrunqueue[i];
-			struct QNode *q = queue->front;
-			while (q != NULL && q->tcb->id != thread)
+			q_ptr = queue->front;
+			while (q_ptr != NULL && q_ptr->tcb->id != thread)
 			{
-				q = q->next;
+				q_ptr = q_ptr->next;
 			}
-			if (q != NULL)
+			if (q_ptr != NULL)
 			{
-				wait_on_thread = q->tcb;
 				break;
 			}
 		}
+		if (q_ptr == NULL)
+		{
+			q_ptr = exitqueue->front;
+			while (q_ptr != NULL && q_ptr->tcb->id != thread)
+			{
+				q_ptr = q_ptr->next;
+			}
+		}
+	}
+
+	if (q_ptr != NULL)
+	{
+		wait_on_thread = q_ptr->tcb;
 	}
 
 	unblockSignalProf(&set);
@@ -243,13 +263,9 @@ int worker_join(worker_t thread, void **value_ptr)
 			worker_yield();
 		}
 		*value_ptr = wait_on_thread->value_ptr;
+		free(wait_on_thread);
 	}
-	// - wait for a specific thread to terminate
 	// - de-allocate any dynamic memory created by the joining thread
-
-	// TODO:
-	// If thread is not in queue, resume
-	// else, swapcontext to sched
 	return 0;
 };
 
@@ -281,7 +297,6 @@ int worker_mutex_lock(worker_mutex_t *mutex)
 	if (mutex->lock == UNLOCKED)
 	{
 		mutex->lock = LOCKED;
-		currTCB->status = RUNNING; // either running or ready
 	}
 
 	else if (mutex->lock == LOCKED)
@@ -306,7 +321,7 @@ int worker_mutex_unlock(worker_mutex_t *mutex)
 	{
 		mutex->lock = UNLOCKED;
 
-		if (isRR == 1)
+		if (isRR)
 		{
 			struct QNode *ptr = runqueue->front;
 			while (ptr != NULL)
