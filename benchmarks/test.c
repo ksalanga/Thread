@@ -15,6 +15,8 @@ void checkCtxt(struct Queue *q);
 struct Queue *setupQueue();
 void *foo(void *arg);
 void *bar(void *arg);
+void *func_foo(void *arg);
+void *func_bar(void *arg);
 void *trythis(void *arg);
 void *trythislock(void *arg);
 long long counter = 0;
@@ -22,19 +24,20 @@ worker_mutex_t lock;
 
 int main(int argc, char **argv)
 {
-	void *ret;
+	void *ret1, *ret2;
 
 	worker_t t1;
 	worker_t t2;
 
-	worker_mutex_init(&lock, NULL);
-	worker_create(&t1, NULL, &trythislock, NULL);
-	worker_create(&t2, NULL, &trythislock, NULL);
+	// worker_mutex_init(&lock, NULL);
+	worker_create(&t1, NULL, &func_bar, NULL);
+	worker_create(&t2, NULL, &func_foo, NULL);
 
-	worker_join(t1, &ret);
-	worker_join(t2, NULL);
+	worker_join(t1, &ret1);
+	worker_join(t2, &ret2);
 
-	printf("thread exited with '%s'\n", ret);
+	printf("Thread 1 exited with '%s'\n", (char *)ret1);
+	printf("Thread 2 exited with '%s'\n", (char *)ret2);
 }
 
 void *trythis(void *arg)
@@ -110,6 +113,56 @@ void *bar(void *arg)
 		}
 		i++;
 	}
+}
+
+void *func_foo(void *arg)
+{
+	// int thread_quasi_id = *((int *)arg);
+	// fprintf(stdout, "Initialize Thread: %d\n", thread_quasi_id);
+
+	// int stack_i = 0;
+	// while (1)
+	// {
+	//     if (stack_i % 19 == 0 && stack_i % 24 == 0 && stack_i % 37 == 0 && stack_i % 105 == 0) // && i % 2049 == 0
+	//         fprintf(stdout, "Thread %d: %d\n", thread_quasi_id, stack_i);
+	//     stack_i++;
+	// }
+
+	for (int i = 0; i < 4; i++)
+	{
+		fprintf(stdout, "Thread 2\n");
+	}
+
+	char *ret;
+
+	if ((ret = (char *)malloc(23)) == NULL)
+	{
+		perror("malloc() error");
+		exit(2);
+	}
+	strcpy(ret, "Two has exited!");
+
+	fprintf(stdout, "func_foo (two) closing..\n");
+	worker_exit(ret);
+	return NULL;
+}
+
+void *func_bar(void *arg)
+{
+	int i;
+	for (i = 0; i < (0xFFFFFFFF); i++)
+		;
+	fprintf(stdout, "func_bar (one) closing...\n");
+
+	char *ret;
+
+	if ((ret = (char *)malloc(23)) == NULL)
+	{
+		perror("malloc() error");
+		exit(2);
+	}
+	strcpy(ret, "One has exited!");
+	worker_exit(ret);
 }
 
 struct Queue *setupQueue()

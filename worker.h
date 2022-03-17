@@ -58,7 +58,7 @@ typedef struct TCB
 	// amount of quanta thread has run for
 	int quanta;
 
-	suseconds_t arrival_time_usec;
+	struct timeval arrival_time;
 
 	// mutex id
 	int mutexid;

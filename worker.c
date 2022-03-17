@@ -17,6 +17,8 @@ worker_t t_id = 0;
 int isRR = 1; // 0 = MLFQ , 1 = RR
 int mId = 0;
 int currPriority = 0;
+int total_threads = 0;
+int finished_threads = 0;
 
 struct itimerval it_val;	/* for setting itimer */
 struct itimerval reset_val; // reset timer for mlfq
@@ -113,7 +115,7 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 		// Record Arrival Time of Caller
 		struct timeval caller_arrival_time;
 		gettimeofday(&caller_arrival_time, NULL);
-		main_tcb->arrival_time_usec = caller_arrival_time.tv_usec;
+		main_tcb->arrival_time = caller_arrival_time;
 
 		currTCB = main_tcb;
 	}
@@ -122,6 +124,7 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 	worker_tcb->id = t_id;
 	*thread = t_id;
 	t_id++;
+	total_threads++;
 	worker_tcb->status = READY;
 	worker_tcb->priority = 0;
 	worker_tcb->quanta = 0;
@@ -151,7 +154,7 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 	// Record Arrival Time of Worker
 	struct timeval worker_arrival_time;
 	gettimeofday(&worker_arrival_time, NULL);
-	worker_tcb->arrival_time_usec = worker_arrival_time.tv_usec;
+	worker_tcb->arrival_time = worker_arrival_time;
 
 	// TODO
 	// if RR put into runqueue, if MLFQ, put into top priority queue
@@ -192,7 +195,27 @@ void worker_exit(void *value_ptr)
 	currTCB->status = EXIT;
 	currTCB->value_ptr = value_ptr;
 	enqueue(exitqueue, currTCB);
+
+	struct timeval finished_time;
+	gettimeofday(&finished_time, NULL);
+	total_turnaround_time_usec += ((finished_time.tv_sec * 1000000 + finished_time.tv_usec) -
+								   (currTCB->arrival_time.tv_sec * 1000000 + currTCB->arrival_time.tv_usec));
+
 	currTCB = NULL;
+
+	finished_threads++;
+
+	if (finished_threads == total_threads)
+	{
+		// Calculate Average Response and Turnaround Time
+		long double total_response_time_ms = (long double)total_response_time_usec / 1000;
+		long double total_turnaround_time_ms = (long double)total_turnaround_time_usec / 1000;
+
+		long double average_response_time_ms = (long double)total_response_time_ms / total_threads;
+		long double average_turnaround_time_ms = (long double)total_turnaround_time_ms / total_threads;
+		fprintf(stdout, "Average Response Time: %Lf ms\n", average_response_time_ms);
+		fprintf(stdout, "Average Turnaround Time: %Lf ms\n", average_turnaround_time_ms);
+	}
 
 	unblockSignalProf(&set);
 	setcontext(sched_ctx);
@@ -375,7 +398,10 @@ int worker_mutex_destroy(worker_mutex_t *mutex)
 
 static void handler()
 {
-	swapcontext(currTCB->t_ctxt, sched_ctx);
+	if (currTCB != NULL)
+		swapcontext(currTCB->t_ctxt, sched_ctx);
+	else
+		setcontext(sched_ctx);
 }
 
 /* scheduler */
@@ -410,10 +436,6 @@ static void sched_rr()
 	{
 		if (!quantum_expired && !currTCB->yield) // Thread has finished, not requeued.
 		{
-			struct timeval finished_time;
-			gettimeofday(&finished_time, NULL);
-			total_turnaround_time_usec += (finished_time.tv_usec - currTCB->arrival_time_usec);
-
 			worker_exit(NULL);
 		}
 		else // Thread has more code to run either through Time Quantum Elapse or Yield
@@ -431,7 +453,6 @@ static void sched_rr()
 		currTCB = dequeue(runqueue);
 	}
 
-	// currTCB == first ready TCB in the runqueue
 	if (currTCB != NULL)
 	{
 		currTCB->status = RUNNING;
@@ -439,7 +460,8 @@ static void sched_rr()
 		{
 			struct timeval initial_schedule_time;
 			gettimeofday(&initial_schedule_time, NULL);
-			total_response_time_usec = (initial_schedule_time.tv_sec - currTCB->arrival_time_usec);
+			total_response_time_usec = ((initial_schedule_time.tv_sec * 1000000 + initial_schedule_time.tv_usec) -
+										(currTCB->arrival_time.tv_sec * 1000000 + currTCB->arrival_time.tv_usec));
 		}
 
 		// Thread has ran for one more quanta
