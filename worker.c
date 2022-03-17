@@ -189,7 +189,6 @@ void worker_exit(void *value_ptr)
 	free(currTCB->t_ctxt);
 	currTCB->status = EXIT;
 	currTCB->value_ptr = value_ptr;
-	enqueue(runqueue, currTCB);
 	currTCB = NULL;
 
 	unblockSignalProf(&set);
@@ -405,7 +404,7 @@ static void sched_rr()
 
 	// If a Thread has a lock and forgets to unlock the lock,
 	// then we're out of luck, the other threads whoo access the lock will block the scheduler from shutting down.
-	while (currTCB != NULL && (currTCB->status == BLOCKED || currTCB->status == EXIT))
+	while (currTCB != NULL && currTCB->status == BLOCKED)
 	{
 		enqueue(runqueue, currTCB);
 		currTCB = dequeue(runqueue);
