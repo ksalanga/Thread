@@ -175,11 +175,8 @@ int worker_yield()
 	// - save context of this thread to its thread control block
 	// - switch from thread context to scheduler context
 
-	if (currTCB != NULL)
-	{
-		currTCB->status = READY;
-		swapcontext(currTCB->t_ctxt, sched_ctx);
-	}
+	currTCB->yield = 1;
+	swapcontext(currTCB->t_ctxt, sched_ctx);
 
 	return 0;
 };
@@ -313,7 +310,7 @@ int worker_mutex_destroy(worker_mutex_t *mutex)
 
 static void handler()
 {
-	worker_yield();
+	swapcontext(currTCB->t_ctxt, sched_ctx);
 }
 
 /* scheduler */
@@ -332,7 +329,6 @@ static void schedule()
 /* Round-robin (RR) scheduling algorithm */
 static void sched_rr()
 {
-	// If remaining time greater than 0, quantum did not expire.
 	getitimer(ITIMER_PROF, &it_val);
 	int quantum_expired = it_val.it_value.tv_usec > 0 ? 0 : 1;
 
@@ -345,7 +341,7 @@ static void sched_rr()
 		exit(1);
 	}
 
-	if (currTCB != NULL && !quantum_expired && !currTCB->yield) // Thread has finished, not requeued.
+	if (!quantum_expired && !currTCB->yield) // Thread has finished, not requeued.
 	{
 		struct timeval finished_time;
 		gettimeofday(&finished_time, NULL);
@@ -355,8 +351,8 @@ static void sched_rr()
 	}
 	else // Thread has more code to run either through Time Quantum Elapse or Yield
 	{
-		if (currTCB != NULL)
-			currTCB->yield = 0;
+		currTCB->yield = 0;
+		currTCB->status = READY;
 		enqueue(runqueue, currTCB);
 	}
 
@@ -373,6 +369,7 @@ static void sched_rr()
 	// currTCB == first ready TCB in the runqueue
 	if (currTCB != NULL)
 	{
+		currTCB->status = RUNNING;
 		if (currTCB->quanta == 0)
 		{
 			struct timeval initial_schedule_time;
@@ -402,7 +399,6 @@ static void sched_rr()
 		// check if blockqueue is empty as well, then stop process.
 		// with MLFQ might want to check other priority levels as well.
 	}
-	fprintf(stdout, "end");
 }
 
 // TODO: delete later
