@@ -28,7 +28,8 @@ enum status
 {
 	READY,
 	RUNNING,
-	BLOCKED
+	BLOCKED,
+	EXIT
 };
 
 enum lock_status
@@ -61,6 +62,8 @@ typedef struct TCB
 
 	// mutex id
 	int mutexid;
+
+	void *value_ptr;
 } tcb;
 
 /* mutex struct definition */
@@ -96,6 +99,9 @@ tcb *dequeue(struct Queue *q);
 static void schedule();
 static void sched_rr();
 static void sched_mlfq();
+static void handler();
+static void blockSignalProf(sigset_t *set);
+static void unblockSignalProf(sigset_t *set);
 // MLFQ
 queue PriorityArray[4];
 

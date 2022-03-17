@@ -19,17 +19,22 @@ int i = 870;
 
 int main(int argc, char **argv)
 {
+	void *ret;
+
 	worker_t t1;
-	worker_t t2;
 	worker_create(&t1, NULL, &foo, NULL);
-	worker_create(&t2, NULL, &bar, NULL);
-	int stack_i = 0;
-	while (1)
-	{
-		if (stack_i % 19 == 0 && stack_i % 24 == 0 && stack_i % 37 == 0 && stack_i % 105 == 0) // && i % 2049 == 0
-			fprintf(stdout, "main: %d\n", stack_i);
-		stack_i++;
-	}
+
+	worker_join(t1, &ret);
+
+	printf("thread exited with '%s'\n", ret);
+
+	// int stack_i = 0;
+	// while (1)
+	// {
+	// 	if (stack_i % 19 == 0 && stack_i % 24 == 0 && stack_i % 37 == 0 && stack_i % 105 == 0) // && i % 2049 == 0
+	// 		fprintf(stdout, "main: %d\n", stack_i);
+	// 	stack_i++;
+	// }
 }
 
 void *foo(void *arg)
@@ -37,15 +42,29 @@ void *foo(void *arg)
 	int i = 0;
 	int counter = 0;
 
-	while (1)
+	for (; i < 10; i++)
 	{
-		if (i % 19 == 0 && i % 24 == 0 && i % 37 == 0 && i % 105 == 0) // && i % 2049 == 0
-		{
-			fprintf(stdout, "f:%d, %d\n", counter, i);
-			counter++;
-		}
-		i++;
+		fprintf(stdout, "hey\n");
 	}
+
+	char *ret;
+
+	if ((ret = (char *)malloc(23)) == NULL)
+	{
+		perror("malloc() error");
+		exit(2);
+	}
+	strcpy(ret, "I am a programmer! :)");
+	worker_exit(ret);
+	// while (1)
+	// {
+	// 	if (i % 19 == 0 && i % 24 == 0 && i % 37 == 0 && i % 105 == 0) // && i % 2049 == 0
+	// 	{
+	// 		fprintf(stdout, "f:%d, %d\n", counter, i);
+	// 		counter++;
+	// 	}
+	// 	i++;
+	// }
 }
 
 void *bar(void *arg)

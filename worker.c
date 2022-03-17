@@ -33,8 +33,6 @@ suseconds_t total_response_time_usec = 0;
 // TODO: delete later
 static void printqueue();
 
-static void handler();
-
 /* create a new thread */
 int worker_create(worker_t *thread, pthread_attr_t *attr,
 				  void *(*function)(void *), void *arg)
@@ -86,6 +84,36 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 			printf("error calling setitimer()");
 			exit(1);
 		}
+
+		// Create Main/Caller Thread Context
+		struct TCB *main_tcb = (struct TCB *)malloc(sizeof(struct TCB));
+		main_tcb->id = t_id;
+		t_id++;
+		main_tcb->status = RUNNING;
+		main_tcb->priority = 0;
+		main_tcb->quanta = 0;
+		main_tcb->t_ctxt = (struct ucontext_t *)malloc(sizeof(struct ucontext_t));
+		main_tcb->mutexid = 0;
+
+		void *main_stack = malloc(STACK_SIZE);
+
+		if (main_stack == NULL)
+		{
+			perror("Failed to allocate main_stack");
+			exit(1);
+		}
+
+		main_tcb->t_ctxt->uc_link = NULL;
+		main_tcb->t_ctxt->uc_stack.ss_sp = main_stack;
+		main_tcb->t_ctxt->uc_stack.ss_size = STACK_SIZE;
+		main_tcb->t_ctxt->uc_stack.ss_flags = 0;
+
+		// Record Arrival Time of Caller
+		struct timeval caller_arrival_time;
+		gettimeofday(&caller_arrival_time, NULL);
+		main_tcb->arrival_time_usec = caller_arrival_time.tv_usec;
+
+		currTCB = main_tcb;
 	}
 
 	struct TCB *worker_tcb = (struct TCB *)malloc(sizeof(struct TCB));
@@ -131,39 +159,6 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 
 	enqueue(runqueue, worker_tcb);
 
-	// Create Main/Caller Thread Context
-	if (currTCB == NULL)
-	{
-		struct TCB *main_tcb = (struct TCB *)malloc(sizeof(struct TCB));
-		main_tcb->id = t_id;
-		t_id++;
-		main_tcb->status = READY;
-		main_tcb->priority = 0;
-		main_tcb->quanta = 0;
-		main_tcb->t_ctxt = (struct ucontext_t *)malloc(sizeof(struct ucontext_t));
-		main_tcb->mutexid = 0;
-
-		void *main_stack = malloc(STACK_SIZE);
-
-		if (main_stack == NULL)
-		{
-			perror("Failed to allocate main_stack");
-			exit(1);
-		}
-
-		main_tcb->t_ctxt->uc_link = NULL;
-		main_tcb->t_ctxt->uc_stack.ss_sp = main_stack;
-		main_tcb->t_ctxt->uc_stack.ss_size = STACK_SIZE;
-		main_tcb->t_ctxt->uc_stack.ss_flags = 0;
-
-		// Record Arrival Time of Caller
-		struct timeval caller_arrival_time;
-		gettimeofday(&caller_arrival_time, NULL);
-		main_tcb->arrival_time_usec = caller_arrival_time.tv_usec;
-
-		currTCB = main_tcb;
-	}
-
 	return 0;
 };
 
@@ -187,22 +182,69 @@ void worker_exit(void *value_ptr)
 	// - de-allocate any dynamic memory created when starting this thread
 	// Modify Value ptr
 
+	sigset_t set;
+	blockSignalProf(&set);
+
 	free(currTCB->t_ctxt->uc_stack.ss_sp);
 	free(currTCB->t_ctxt);
-	free(currTCB);
-
+	currTCB->status = EXIT;
+	currTCB->value_ptr = value_ptr;
+	enqueue(runqueue, currTCB);
 	currTCB = NULL;
 
-	// Because currTCB is null, when we go back to the runqueue,
-	// the running thread that called worker exit has already been dequequed,
-	// just check in the scheduler if currTCB is NULL, enqueue next thread.
-	// effectively removing the thread
+	unblockSignalProf(&set);
+	setcontext(sched_ctx);
 };
 
 /* Wait for thread termination */
 int worker_join(worker_t thread, void **value_ptr)
 {
+	// find worker_t thread.
+	struct TCB *wait_on_thread = NULL;
 
+	sigset_t set;
+	blockSignalProf(&set);
+
+	if (isRR)
+	{
+		struct QNode *q = runqueue->front;
+		while (q != NULL && q->tcb->id != thread)
+		{
+			q = q->next;
+		}
+		if (q != NULL)
+		{
+			wait_on_thread = q->tcb;
+		}
+	}
+	else
+	{
+		for (int i = 0; i < 4; i++)
+		{
+			struct Queue *queue = mlfqrunqueue[i];
+			struct QNode *q = queue->front;
+			while (q != NULL && q->tcb->id != thread)
+			{
+				q = q->next;
+			}
+			if (q != NULL)
+			{
+				wait_on_thread = q->tcb;
+				break;
+			}
+		}
+	}
+
+	unblockSignalProf(&set);
+
+	if (wait_on_thread != NULL)
+	{
+		while (wait_on_thread->status != EXIT)
+		{
+			worker_yield();
+		}
+		*value_ptr = wait_on_thread->value_ptr;
+	}
 	// - wait for a specific thread to terminate
 	// - de-allocate any dynamic memory created by the joining thread
 
@@ -341,26 +383,29 @@ static void sched_rr()
 		exit(1);
 	}
 
-	if (!quantum_expired && !currTCB->yield) // Thread has finished, not requeued.
+	if (currTCB != NULL)
 	{
-		struct timeval finished_time;
-		gettimeofday(&finished_time, NULL);
-		total_turnaround_time_usec += (finished_time.tv_usec - currTCB->arrival_time_usec);
+		if (!quantum_expired && !currTCB->yield) // Thread has finished, not requeued.
+		{
+			struct timeval finished_time;
+			gettimeofday(&finished_time, NULL);
+			total_turnaround_time_usec += (finished_time.tv_usec - currTCB->arrival_time_usec);
 
-		worker_exit(NULL);
-	}
-	else // Thread has more code to run either through Time Quantum Elapse or Yield
-	{
-		currTCB->yield = 0;
-		currTCB->status = READY;
-		enqueue(runqueue, currTCB);
+			worker_exit(NULL);
+		}
+		else // Thread has more code to run either through Time Quantum Elapse or Yield
+		{
+			currTCB->yield = 0;
+			currTCB->status = READY;
+			enqueue(runqueue, currTCB);
+		}
 	}
 
 	currTCB = dequeue(runqueue);
 
 	// If a Thread has a lock and forgets to unlock the lock,
 	// then we're out of luck, the other threads whoo access the lock will block the scheduler from shutting down.
-	while (currTCB != NULL && currTCB->status == BLOCKED)
+	while (currTCB != NULL && (currTCB->status == BLOCKED || currTCB->status == EXIT))
 	{
 		enqueue(runqueue, currTCB);
 		currTCB = dequeue(runqueue);
@@ -529,6 +574,17 @@ tcb *dequeue(struct Queue *q)
 
 	free(node);
 	return tcb;
+}
+
+static void blockSignalProf(sigset_t *set)
+{
+	sigemptyset(set);
+	sigaddset(set, SIGPROF);
+	sigprocmask(SIG_BLOCK, set, NULL);
+}
+static void unblockSignalProf(sigset_t *set)
+{
+	sigprocmask(SIG_UNBLOCK, set, NULL);
 }
 
 //  		CASE IS WHEN TIME QUANTUM FULLY ELAPSED AND CODE IS STILL REMAINING
