@@ -14,9 +14,8 @@ struct Queue *mlfqrunqueue[4]; // 0 IS TOP LEVEL, 3 IS BOTTOM
 struct Queue *runqueue;
 struct Queue *exitqueue;
 worker_t t_id = 0;
-int isRR = 1; // 0 = MLFQ , 1 = RR
-int mId = 0;
-int currPriority = 0;
+int isRR = 1;		  // 0 = MLFQ , 1 = RR
+int currPriority = 0; // might not be needed
 int total_threads = 0;
 int finished_threads = 0;
 
@@ -71,11 +70,17 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 		getcontext(sched_ctx);
 		makecontext(sched_ctx, schedule, 0);
 
-		for (int i = 0; i < 3; i++)
+		if (isRR)
 		{
-			mlfqrunqueue[i] = createQueue();
+			runqueue = createQueue();
 		}
-		runqueue = createQueue();
+		else
+		{
+			for (int i = 0; i < 3; i++)
+			{
+				mlfqrunqueue[i] = createQueue();
+			}
+		}
 		exitqueue = createQueue();
 
 		// Run timer
@@ -97,7 +102,6 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 		main_tcb->priority = 0;
 		main_tcb->quanta = 0;
 		main_tcb->t_ctxt = (struct ucontext_t *)malloc(sizeof(struct ucontext_t));
-		main_tcb->mutexid = 0;
 
 		void *main_stack = malloc(STACK_SIZE);
 
@@ -129,7 +133,6 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 	worker_tcb->priority = 0;
 	worker_tcb->quanta = 0;
 	worker_tcb->t_ctxt = (struct ucontext_t *)malloc(sizeof(struct ucontext_t));
-	worker_tcb->mutexid = 0;
 
 	if (getcontext(worker_tcb->t_ctxt) < 0)
 	{
@@ -174,7 +177,6 @@ int worker_yield()
 	// - change worker thread's state from Running to Ready
 	// - save context of this thread to its thread control block
 	// - switch from thread context to scheduler context
-
 	currTCB->yield = 1;
 	swapcontext(currTCB->t_ctxt, sched_ctx);
 
@@ -301,8 +303,7 @@ int worker_mutex_init(worker_mutex_t *mutex,
 	blockSignalProf(&set);
 
 	mutex->lock = UNLOCKED;
-	mutex->mutexid = mId;
-	mId++;
+	mutex->blocked_queue = createQueue();
 
 	unblockSignalProf(&set);
 	return 0;
@@ -316,10 +317,6 @@ int worker_mutex_lock(worker_mutex_t *mutex)
 	// - if the mutex is acquired successfully, enter the critical section
 	// - if acquiring mutex fails, push current thread into block list and
 	// context switch to the scheduler thread
-	sigset_t set;
-	blockSignalProf(&set);
-
-	currTCB->mutexid = mutex->mutexid;
 
 	if (mutex->lock == UNLOCKED)
 	{
@@ -327,11 +324,16 @@ int worker_mutex_lock(worker_mutex_t *mutex)
 	}
 	else if (mutex->lock == LOCKED)
 	{
-		currTCB->status = BLOCKED;
-		worker_yield();
-	}
+		sigset_t set;
+		blockSignalProf(&set);
 
-	unblockSignalProf(&set);
+		currTCB->status = BLOCKED;
+		enqueue(mutex->blocked_queue, currTCB);
+		currTCB = NULL;
+
+		unblockSignalProf(&set);
+		setcontext(sched_ctx);
+	}
 
 	return 0;
 };
@@ -347,40 +349,23 @@ int worker_mutex_unlock(worker_mutex_t *mutex)
 
 	sigset_t set;
 	blockSignalProf(&set);
-	struct QNode *ptr;
 
-	currTCB->mutexid = -1;
 	if (mutex->lock == LOCKED)
 	{
 		mutex->lock = UNLOCKED;
 
-		if (isRR)
+		struct TCB *unblocked_thread = dequeue(mutex->blocked_queue);
+		if (unblocked_thread != NULL)
 		{
-			ptr = runqueue->front;
-			while (ptr != NULL && ptr->tcb->mutexid != mutex->mutexid)
+			unblocked_thread->status = READY;
+			if (isRR)
 			{
-				ptr = ptr->next;
+				enqueue(runqueue, unblocked_thread);
 			}
-		}
-		else
-		{
-
-			for (int i = 0; i < 4; i++)
+			else
 			{
-				ptr = mlfqrunqueue[i]->front;
-				while (ptr != NULL && ptr->tcb->mutexid != mutex->mutexid)
-				{
-					ptr = ptr->next;
-				}
-				if (ptr != NULL)
-				{
-					break;
-				}
+				enqueue(mlfqrunqueue[unblocked_thread->priority], unblocked_thread);
 			}
-		}
-		if (ptr != NULL)
-		{
-			ptr->tcb->status = READY;
 		}
 	}
 	unblockSignalProf(&set);
@@ -392,7 +377,17 @@ int worker_mutex_unlock(worker_mutex_t *mutex)
 int worker_mutex_destroy(worker_mutex_t *mutex)
 {
 	// - de-allocate dynamic memory created in worker_mutex_init
-	free(mutex);
+	struct QNode *q_ptr = mutex->blocked_queue->front;
+	struct QNode *prev;
+
+	while (q_ptr != NULL)
+	{
+		prev = q_ptr;
+		q_ptr = q_ptr->next;
+		free(prev);
+	}
+
+	free(mutex->blocked_queue);
 	return 0;
 };
 
@@ -447,12 +442,6 @@ static void sched_rr()
 
 	currTCB = dequeue(runqueue);
 
-	while (currTCB != NULL && currTCB->status == BLOCKED)
-	{
-		enqueue(runqueue, currTCB);
-		currTCB = dequeue(runqueue);
-	}
-
 	if (currTCB != NULL)
 	{
 		currTCB->status = RUNNING;
@@ -479,12 +468,6 @@ static void sched_rr()
 		}
 
 		setcontext(currTCB->t_ctxt);
-	}
-	else
-	{
-		// empty runqueue
-		// check if blockqueue is empty as well, then stop process.
-		// with MLFQ might want to check other priority levels as well.
 	}
 }
 

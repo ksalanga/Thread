@@ -60,9 +60,6 @@ typedef struct TCB
 
 	struct timeval arrival_time;
 
-	// mutex id
-	int mutexid;
-
 	void *value_ptr;
 } tcb;
 
@@ -70,7 +67,7 @@ typedef struct TCB
 typedef struct worker_mutex_t
 {
 	enum lock_status lock;
-	int mutexid;
+	struct Queue *blocked_queue;
 } worker_mutex_t;
 
 /* define your data structures here: */
