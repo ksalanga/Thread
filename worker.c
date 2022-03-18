@@ -14,7 +14,6 @@ struct Queue *mlfqrunqueue[4]; // 0 IS TOP LEVEL, 3 IS BOTTOM
 struct Queue *runqueue;
 struct Queue *exitqueue;
 worker_t t_id = 0;
-int isRR = 1;		  // 0 = MLFQ , 1 = RR
 int currPriority = 0; // might not be needed
 int total_threads = 0;
 int finished_threads = 0;
@@ -24,13 +23,25 @@ struct itimerval reset_val; // reset timer for mlfq
 suseconds_t total_turnaround_time_usec = 0;
 suseconds_t total_response_time_usec = 0;
 
+suseconds_t S = 0;
+
 #define INTERVAL 10 /* milliseconds */
-#define INTERVAL_USEC (INTERVAL * 1000) % 1000000
-#define INTERVAL_SEC INTERVAL / 1000
+#define INTERVAL_USEC(i) (i * 1000) % 1000000
+#define INTERVAL_SEC(i) i / 1000
 
 #define r_INTERVAL 50 /* milliseconds */
 #define r_INTERVAL_USEC (r_INTERVAL * 1000) % 1000000
 #define r_INTERVAL_SEC r_INTERVAL / 1000
+
+#define LEVELS 4
+#define PRIORITY_0 10
+#define PRIORITY_1 20
+#define PRIORITY_2 30
+#define PRIORITY_3 40
+
+int priority_intervals[4] = {PRIORITY_0, PRIORITY_1, PRIORITY_2, PRIORITY_3};
+
+#define min(X, Y) ((X) < (Y) ? (X) : (Y))
 
 // TODO: delete later
 static void printqueue();
@@ -70,22 +81,20 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 		getcontext(sched_ctx);
 		makecontext(sched_ctx, schedule, 0);
 
-		if (isRR)
+#ifndef MLFQ
+		runqueue = createQueue();
+#else
+		for (int i = 0; i < LEVELS; i++)
 		{
-			runqueue = createQueue();
+			mlfqrunqueue[i] = createQueue();
 		}
-		else
-		{
-			for (int i = 0; i < 3; i++)
-			{
-				mlfqrunqueue[i] = createQueue();
-			}
-		}
+#endif
+
 		exitqueue = createQueue();
 
 		// Run timer
-		it_val.it_value.tv_sec = INTERVAL_SEC;
-		it_val.it_value.tv_usec = INTERVAL_USEC;
+		it_val.it_value.tv_sec = INTERVAL_SEC(INTERVAL);
+		it_val.it_value.tv_usec = INTERVAL_USEC(INTERVAL);
 		it_val.it_interval.tv_sec = 0;
 		it_val.it_interval.tv_usec = 0;
 		if (setitimer(ITIMER_PROF, &it_val, NULL) == -1)
@@ -159,13 +168,14 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 	gettimeofday(&worker_arrival_time, NULL);
 	worker_tcb->arrival_time = worker_arrival_time;
 
-	// TODO
-	// if RR put into runqueue, if MLFQ, put into top priority queue
-
 	// Create Worker Thread Context
 	makecontext(worker_tcb->t_ctxt, (void *)function, 1, arg);
 
+#ifndef MLFQ
 	enqueue(runqueue, worker_tcb);
+#else
+	enqueue(mlfqrunqueue[0], worker_tcb);
+#endif
 
 	return 0;
 };
@@ -233,45 +243,43 @@ int worker_join(worker_t thread, void **value_ptr)
 	blockSignalProf(&set);
 
 	struct QNode *q_ptr;
-	if (isRR)
+
+#ifndef MLFQ
+	q_ptr = runqueue->front;
+	while (q_ptr != NULL && q_ptr->tcb->id != thread)
 	{
-		q_ptr = runqueue->front;
+		q_ptr = q_ptr->next;
+	}
+	if (q_ptr == NULL)
+	{
+		q_ptr = exitqueue->front;
 		while (q_ptr != NULL && q_ptr->tcb->id != thread)
 		{
 			q_ptr = q_ptr->next;
 		}
-		if (q_ptr == NULL)
-		{
-			q_ptr = exitqueue->front;
-			while (q_ptr != NULL && q_ptr->tcb->id != thread)
-			{
-				q_ptr = q_ptr->next;
-			}
-		}
 	}
-	else
+#else
+	for (int i = 0; i < 4; i++)
 	{
-		for (int i = 0; i < 4; i++)
+		q_ptr = mlfqrunqueue[i]->front;
+		while (q_ptr != NULL && q_ptr->tcb->id != thread)
 		{
-			q_ptr = mlfqrunqueue[i]->front;
-			while (q_ptr != NULL && q_ptr->tcb->id != thread)
-			{
-				q_ptr = q_ptr->next;
-			}
-			if (q_ptr != NULL)
-			{
-				break;
-			}
+			q_ptr = q_ptr->next;
 		}
-		if (q_ptr == NULL)
+		if (q_ptr != NULL)
 		{
-			q_ptr = exitqueue->front;
-			while (q_ptr != NULL && q_ptr->tcb->id != thread)
-			{
-				q_ptr = q_ptr->next;
-			}
+			break;
 		}
 	}
+	if (q_ptr == NULL)
+	{
+		q_ptr = exitqueue->front;
+		while (q_ptr != NULL && q_ptr->tcb->id != thread)
+		{
+			q_ptr = q_ptr->next;
+		}
+	}
+#endif
 
 	if (q_ptr != NULL)
 	{
@@ -328,6 +336,7 @@ int worker_mutex_lock(worker_mutex_t *mutex)
 		blockSignalProf(&set);
 
 		currTCB->status = BLOCKED;
+		currTCB->priority = 0;
 		enqueue(mutex->blocked_queue, currTCB);
 		currTCB = NULL;
 
@@ -358,14 +367,12 @@ int worker_mutex_unlock(worker_mutex_t *mutex)
 		if (unblocked_thread != NULL)
 		{
 			unblocked_thread->status = READY;
-			if (isRR)
-			{
-				enqueue(runqueue, unblocked_thread);
-			}
-			else
-			{
-				enqueue(mlfqrunqueue[unblocked_thread->priority], unblocked_thread);
-			}
+
+#ifndef MLFQ
+			enqueue(runqueue, unblocked_thread);
+#else
+			enqueue(mlfqrunqueue[unblocked_thread->priority], unblocked_thread);
+#endif
 		}
 	}
 	unblockSignalProf(&set);
@@ -393,6 +400,7 @@ int worker_mutex_destroy(worker_mutex_t *mutex)
 
 static void handler()
 {
+	// printqueue();
 	if (currTCB != NULL)
 		swapcontext(currTCB->t_ctxt, sched_ctx);
 	else
@@ -402,21 +410,23 @@ static void handler()
 /* scheduler */
 static void schedule()
 {
-	if (isRR)
-	{
-		sched_rr();
-	}
-	else
-	{
-		sched_mlfq();
-	}
+
+#ifndef MLFQ
+	sched_rr(INTERVAL);
+#else
+	sched_mlfq();
+#endif
 }
 
 /* Round-robin (RR) scheduling algorithm */
-static void sched_rr()
+static void sched_rr(int interval_ms)
 {
 	getitimer(ITIMER_PROF, &it_val);
 	int quantum_expired = it_val.it_value.tv_usec > 0 ? 0 : 1;
+
+#if MLFQ
+	struct itimerval remaining_time = it_val;
+#endif
 
 	// Stops timer
 	it_val.it_value.tv_sec = 0;
@@ -435,8 +445,17 @@ static void sched_rr()
 		}
 		else // Thread has more code to run either through Time Quantum Elapse or Yield
 		{
+
 			currTCB->yield = 0;
+#ifndef MLFQ
 			enqueue(runqueue, currTCB);
+#else
+			if (quantum_expired)
+			{
+				currTCB->priority = min(currTCB->priority + 1, 3);
+			}
+			enqueue(mlfqrunqueue[currTCB->priority], currTCB);
+#endif
 		}
 	}
 
@@ -456,9 +475,37 @@ static void sched_rr()
 		// Thread has ran for one more quanta
 		currTCB->quanta++;
 
+#if MLFQ
+		// If S has elapsed, put all threads to the top of the priority queue
+		S += INTERVAL_USEC(interval_ms) - (remaining_time.it_value.tv_sec * 1000000 + remaining_time.it_value.tv_usec);
+		if (S >= r_INTERVAL_USEC)
+		{
+			// fprintf(stdout, "Resetting Priorities\n");
+			for (int i = 1; i < LEVELS; i++)
+			{
+				if (mlfqrunqueue[i]->front != NULL)
+				{
+					if (mlfqrunqueue[0]->front != NULL)
+					{
+						mlfqrunqueue[0]->rear->next = mlfqrunqueue[i]->front;
+						mlfqrunqueue[0]->rear = mlfqrunqueue[i]->rear;
+					}
+					else
+					{
+						mlfqrunqueue[0]->front = mlfqrunqueue[i]->front;
+						mlfqrunqueue[0]->rear = mlfqrunqueue[i]->rear;
+					}
+					mlfqrunqueue[i]->front = NULL;
+					mlfqrunqueue[i]->rear = NULL;
+				}
+			}
+			S = 0;
+		}
+#endif
+
 		// Run timer
-		it_val.it_value.tv_sec = INTERVAL_SEC;
-		it_val.it_value.tv_usec = INTERVAL_USEC;
+		it_val.it_value.tv_sec = INTERVAL_SEC(interval_ms);
+		it_val.it_value.tv_usec = INTERVAL_USEC(interval_ms);
 		it_val.it_interval.tv_sec = 0;
 		it_val.it_interval.tv_usec = 0;
 		if (setitimer(ITIMER_PROF, &it_val, NULL) == -1)
@@ -471,82 +518,22 @@ static void sched_rr()
 	}
 }
 
-// TODO: delete later
-static void printqueue()
-{
-	if (currTCB != NULL)
-	{
-		fprintf(stdout, "|%d|  ", currTCB->id);
-	}
-	else
-	{
-		fprintf(stdout, "| |  ");
-	}
-
-	struct QNode *q = runqueue->front;
-	while (q != NULL)
-	{
-		fprintf(stdout, "%d->", q->tcb->id);
-		q = q->next;
-	}
-	fprintf(stdout, "/\n");
-}
-
 /* Preemptive MLFQ scheduling algorithm */
 static void sched_mlfq()
 {
-	// - your own implementation of MLFQ
-	// (feel free to modify arguments and return types)
-
-	int resetTimerExp = reset_val.it_value.tv_usec > 0 ? 0 : 1;
-
-	reset_val.it_value.tv_usec = 0;
-	reset_val.it_value.tv_sec = 0;
-
-	if (setitimer(ITIMER_PROF, &reset_val, NULL) == -1)
+	int priority_level = 0;
+	// Rule 1
+	for (int i = 0; i < LEVELS; i++)
 	{
-		printf("error calling setitimer()");
-		exit(1);
-	}
-
-	if (resetTimerExp == 1)
-	{
-		// move all threads to top queue
-		int i = 1;
-		struct QNode *ptr = mlfqrunqueue[i]->front;
-		while (ptr != NULL)
+		if (mlfqrunqueue[i]->front != NULL)
 		{
-			enqueue(mlfqrunqueue[0], dequeue(mlfqrunqueue[i]));
-			if ((ptr->next == NULL) && (i != 3))
-			{
-				i++;
-				ptr = mlfqrunqueue[i]->front;
-			}
-			ptr = ptr->next;
-		}
-
-		reset_val.it_value.tv_sec = r_INTERVAL_SEC;
-		reset_val.it_value.tv_usec = r_INTERVAL_USEC;
-		reset_val.it_interval.tv_sec = 0;
-		reset_val.it_interval.tv_usec = 0;
-		if (setitimer(ITIMER_PROF, &reset_val, NULL) == -1)
-		{
-			printf("error calling setitimer()");
-			exit(1);
+			runqueue = mlfqrunqueue[i];
+			priority_level = i;
+			break;
 		}
 	}
 
-	if (currTCB == NULL && currPriority != 3)
-	{
-		int tempPriority = currPriority + 1;
-		currTCB = dequeue(mlfqrunqueue[tempPriority]);
-	}
-	else if (currPriority == 3)
-	{
-		currPriority = 0;
-	}
-	runqueue = mlfqrunqueue[currPriority];
-	sched_rr();
+	sched_rr(priority_intervals[priority_level]);
 }
 
 // Feel free to add any other functions you need
@@ -612,10 +599,46 @@ static void unblockSignalProf(sigset_t *set)
 	sigprocmask(SIG_UNBLOCK, set, NULL);
 }
 
-//  		CASE IS WHEN TIME QUANTUM FULLY ELAPSED AND CODE IS STILL REMAINING
-//		if((isRR == 0) && (quantum_expired == 1) && (currTCB->yield == 1)){
-// 			getcontext(currTCB->t_ctxt);
-// 			if(currPriority != 3){
-// 				int tempPriority = currPriority + 1;
-// 				enqueue(mlfqrunqueue[tempPriority], currTCB);
-//		}
+// TODO: delete later
+static void printqueue()
+{
+#if MLFQ
+	fprintf(stdout, "********************\n");
+#endif
+	if (currTCB != NULL)
+	{
+		fprintf(stdout, "|%d|  ", currTCB->id);
+	}
+	else
+	{
+		fprintf(stdout, "| |  ");
+	}
+
+#ifndef MLFQ
+	struct QNode *q = runqueue->front;
+	while (q != NULL)
+	{
+		fprintf(stdout, "%d->", q->tcb->id);
+		q = q->next;
+	}
+	fprintf(stdout, "/\n");
+#else
+	fprintf(stdout, "\n");
+	for (int i = 0; i < LEVELS; i++)
+	{
+		fprintf(stdout, "%d: ", i);
+		struct QNode *q;
+		if (mlfqrunqueue[i]->front != NULL)
+		{
+			q = mlfqrunqueue[i]->front;
+			while (q != NULL)
+			{
+				fprintf(stdout, "%d->", q->tcb->id);
+				q = q->next;
+			}
+		}
+		fprintf(stdout, "\n");
+	}
+	fprintf(stdout, "********************\n\n");
+#endif
+}
