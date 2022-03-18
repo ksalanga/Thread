@@ -428,14 +428,7 @@ static void sched_rr(int interval_ms)
 	struct itimerval remaining_time = it_val;
 #endif
 
-	// Stops timer
-	it_val.it_value.tv_sec = 0;
-	it_val.it_value.tv_usec = 0;
-	if (setitimer(ITIMER_PROF, &it_val, NULL) == -1)
-	{
-		printf("error calling setitimer()");
-		exit(1);
-	}
+	stoptimer();
 
 	if (currTCB != NULL)
 	{
@@ -503,18 +496,25 @@ static void sched_rr(int interval_ms)
 		}
 #endif
 
-		// Run timer
-		it_val.it_value.tv_sec = INTERVAL_SEC(interval_ms);
-		it_val.it_value.tv_usec = INTERVAL_USEC(interval_ms);
-		it_val.it_interval.tv_sec = 0;
-		it_val.it_interval.tv_usec = 0;
-		if (setitimer(ITIMER_PROF, &it_val, NULL) == -1)
-		{
-			printf("error calling setitimer()");
-			exit(1);
-		}
+		runtimer(interval_ms);
 
 		setcontext(currTCB->t_ctxt);
+	}
+	else
+	{
+#if MLFQ
+		for (int i = 0; i < LEVELS; i++)
+		{
+			struct QNode *q = mlfqrunqueue[i]->front;
+			if (q != NULL)
+			{
+				currTCB = dequeue(mlfqrunqueue[i]);
+				runtimer(priority_intervals[i]);
+				setcontext(currTCB->t_ctxt);
+				break;
+			}
+		}
+#endif
 	}
 }
 
@@ -597,6 +597,31 @@ static void blockSignalProf(sigset_t *set)
 static void unblockSignalProf(sigset_t *set)
 {
 	sigprocmask(SIG_UNBLOCK, set, NULL);
+}
+
+static void stoptimer()
+{
+	// Stops timer
+	it_val.it_value.tv_sec = 0;
+	it_val.it_value.tv_usec = 0;
+	if (setitimer(ITIMER_PROF, &it_val, NULL) == -1)
+	{
+		printf("error calling setitimer()");
+		exit(1);
+	}
+}
+
+static void runtimer(int interval_ms)
+{
+	it_val.it_value.tv_sec = INTERVAL_SEC(interval_ms);
+	it_val.it_value.tv_usec = INTERVAL_USEC(interval_ms);
+	it_val.it_interval.tv_sec = 0;
+	it_val.it_interval.tv_usec = 0;
+	if (setitimer(ITIMER_PROF, &it_val, NULL) == -1)
+	{
+		printf("error calling setitimer()");
+		exit(1);
+	}
 }
 
 // TODO: delete later

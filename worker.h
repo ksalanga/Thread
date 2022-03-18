@@ -12,7 +12,7 @@
 /* To use Linux pthread Library in Benchmark, you have to comment the USE_WORKERS macro */
 #define USE_WORKERS 1
 
-#define MLFQ 1
+// #define MLFQ 1
 
 /* include lib header files that you need here: */
 #include <unistd.h>
@@ -101,6 +101,8 @@ static void sched_mlfq();
 static void handler();
 static void blockSignalProf(sigset_t *set);
 static void unblockSignalProf(sigset_t *set);
+static void stoptimer();
+static void runtimer(int interval_ms);
 // MLFQ
 queue PriorityArray[4];
 
