@@ -336,7 +336,6 @@ int worker_mutex_lock(worker_mutex_t *mutex)
 	{
 
 		currTCB->status = BLOCKED;
-		currTCB->priority = 0;
 		enqueue(mutex->blocked_queue, currTCB);
 
 		unblockSignalProf(&set);
