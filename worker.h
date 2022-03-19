@@ -1,8 +1,10 @@
 // File:	worker_t.h
 
 // List all group member's name:
-// username of iLab:
-// iLab Server:
+// Kenneth Salanga kcs132
+// Ganesh Vankayala gvv6
+// username of iLab: kcs132
+// iLab Server: 1
 
 #ifndef WORKER_T_H
 #define WORKER_T_H
