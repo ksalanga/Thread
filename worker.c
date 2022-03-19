@@ -94,16 +94,7 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 
 		exitqueue = createQueue();
 
-		// Run timer
-		it_val.it_value.tv_sec = INTERVAL_SEC(INTERVAL);
-		it_val.it_value.tv_usec = INTERVAL_USEC(INTERVAL);
-		it_val.it_interval.tv_sec = 0;
-		it_val.it_interval.tv_usec = 0;
-		if (setitimer(ITIMER_PROF, &it_val, NULL) == -1)
-		{
-			printf("error calling setitimer()");
-			exit(1);
-		}
+		runtimer(INTERVAL);
 
 		// Create Main/Caller Thread Context
 		struct TCB *main_tcb = (struct TCB *)malloc(sizeof(struct TCB));
