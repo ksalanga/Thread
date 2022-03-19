@@ -326,23 +326,23 @@ int worker_mutex_lock(worker_mutex_t *mutex)
 	// - if acquiring mutex fails, push current thread into block list and
 	// context switch to the scheduler thread
 
+	sigset_t set;
+	blockSignalProf(&set);
 	if (mutex->lock == UNLOCKED)
 	{
 		mutex->lock = LOCKED;
 	}
 	else if (mutex->lock == LOCKED)
 	{
-		sigset_t set;
-		blockSignalProf(&set);
 
 		currTCB->status = BLOCKED;
 		currTCB->priority = 0;
 		enqueue(mutex->blocked_queue, currTCB);
-		currTCB = NULL;
 
 		unblockSignalProf(&set);
-		setcontext(sched_ctx);
+		swapcontext(currTCB->t_ctxt, sched_ctx);
 	}
+	unblockSignalProf(&set);
 
 	return 0;
 };
@@ -400,7 +400,6 @@ int worker_mutex_destroy(worker_mutex_t *mutex)
 
 static void handler()
 {
-	// printqueue();
 	if (currTCB != NULL)
 		swapcontext(currTCB->t_ctxt, sched_ctx);
 	else
@@ -430,7 +429,7 @@ static void sched_rr(int interval_ms)
 
 	stoptimer();
 
-	if (currTCB != NULL)
+	if (currTCB != NULL && currTCB->status != BLOCKED)
 	{
 		if (!quantum_expired && !currTCB->yield) // Thread has finished, not requeued.
 		{
