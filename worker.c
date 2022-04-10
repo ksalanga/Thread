@@ -8,6 +8,8 @@
 
 #include "worker.h"
 
+#include <stdatomic.h>
+
 #define STACK_SIZE SIGSTKSZ
 
 struct TCB *currTCB;
@@ -303,10 +305,11 @@ int worker_mutex_init(worker_mutex_t *mutex,
 	sigset_t set;
 	blockSignalProf(&set);
 
-	mutex->lock = UNLOCKED;
+	atomic_flag_clear(&mutex->lock);
 	mutex->blocked_queue = createQueue();
 
 	unblockSignalProf(&set);
+
 	return 0;
 };
 
@@ -321,13 +324,9 @@ int worker_mutex_lock(worker_mutex_t *mutex)
 
 	sigset_t set;
 	blockSignalProf(&set);
-	if (mutex->lock == UNLOCKED)
-	{
-		mutex->lock = LOCKED;
-	}
-	else if (mutex->lock == LOCKED)
-	{
 
+	while (atomic_flag_test_and_set(&mutex->lock) == LOCKED)
+	{
 		currTCB->status = BLOCKED;
 		enqueue(mutex->blocked_queue, currTCB);
 
@@ -351,21 +350,18 @@ int worker_mutex_unlock(worker_mutex_t *mutex)
 	sigset_t set;
 	blockSignalProf(&set);
 
-	if (mutex->lock == LOCKED)
-	{
-		mutex->lock = UNLOCKED;
+	atomic_flag_clear(&mutex->lock);
 
-		struct TCB *unblocked_thread = dequeue(mutex->blocked_queue);
-		if (unblocked_thread != NULL)
-		{
-			unblocked_thread->status = READY;
+	struct TCB *unblocked_thread = dequeue(mutex->blocked_queue);
+	if (unblocked_thread != NULL)
+	{
+		unblocked_thread->status = READY;
 
 #ifndef MLFQ
-			enqueue(runqueue, unblocked_thread);
+		enqueue(runqueue, unblocked_thread);
 #else
-			enqueue(mlfqrunqueue[unblocked_thread->priority], unblocked_thread);
+		enqueue(mlfqrunqueue[unblocked_thread->priority], unblocked_thread);
 #endif
-		}
 	}
 	unblockSignalProf(&set);
 

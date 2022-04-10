@@ -14,7 +14,7 @@
 /* To use Linux pthread Library in Benchmark, you have to comment the USE_WORKERS macro */
 #define USE_WORKERS 1
 
-// #define MLFQ 1
+#define MLFQ 1
 
 /* include lib header files that you need here: */
 #include <unistd.h>
@@ -25,6 +25,7 @@
 #include <signal.h>
 #include <ucontext.h>
 #include <sys/time.h>
+#include <stdatomic.h>
 
 typedef uint worker_t;
 
@@ -38,8 +39,8 @@ enum status
 
 enum lock_status
 {
-	LOCKED,
-	UNLOCKED
+	UNLOCKED,
+	LOCKED
 };
 
 typedef struct TCB
@@ -70,7 +71,7 @@ typedef struct TCB
 /* mutex struct definition */
 typedef struct worker_mutex_t
 {
-	enum lock_status lock;
+	atomic_flag lock;
 	struct Queue *blocked_queue;
 } worker_mutex_t;
 
